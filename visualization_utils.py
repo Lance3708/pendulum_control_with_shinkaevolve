@@ -95,7 +95,7 @@ def visualize_pendulum_enhanced(states, forces, energy_ylim=50000, speed_factor=
     ax_anim.set_ylim(-1, 3)  # 调整Y轴以显示2m杆的完整运动
     ax_anim.set_aspect('equal', adjustable='box')
     ax_anim.grid(True)
-    ax_anim.set_title("Single Pendulum Simulation (2.0m pole)")
+    ax_anim.set_title("Single Pendulum Simulation (2.5m pole)")
     
     cart_w, cart_h = 0.5, 0.3
     cart_patch = Rectangle((0, 0), cart_w, cart_h, color='black')
