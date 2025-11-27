@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "Denominator polynomial must be rank-1 array."
+}

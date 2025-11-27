@@ -1,0 +1,186 @@
+import numpy as np
+
+# --- Physics Constants ---
+M_CART = 1.0       # Mass of the cart (kg)
+M_POLE = 0.35      # Mass of the pole (kg) - 更重，大幅增加控制难度
+L_POLE = 2.5       # Total length of the pole (m) - 更长，极不稳定
+L_COM = L_POLE / 2 # Length to center of mass (m)
+G = 9.81           # Gravity (m/s^2)
+FRICTION_CART = 0.35 # Coefficient of friction for cart - 高摩擦，更多能量损失
+FRICTION_JOINT = 0.25 # Coefficient of friction for joint - 高关节摩擦
+DT = 0.02          # Time step (s)
+MAX_STEPS = 1000   # 20 seconds simulation
+
+def simulate_pendulum_step(state, force, dt):
+    """
+    Simulates one time step of the Single Inverted Pendulum.
+
+    State vector: [x, theta, dx, dtheta]
+    - x: Cart position (m)
+    - theta: Pole angle (rad), 0 is upright
+    - dx: Cart velocity (m/s)
+    - dtheta: Pole angular velocity (rad/s)
+
+    Args:
+        state: numpy array of shape (4,)
+        force: scalar float, force applied to the cart (N)
+        dt: float, time step (s)
+
+    Returns:
+        next_state: numpy array of shape (4,)
+    """
+    x, theta, dx, dtheta = state
+
+    # Precompute trig terms
+    sin_theta = np.sin(theta)
+    cos_theta = np.cos(theta)
+
+    # Equations of Motion (Non-linear)
+    # derived from Lagrangian dynamics
+
+    # Total mass
+    M_total = M_CART + M_POLE
+
+    # Friction forces
+    f_cart = -FRICTION_CART * dx
+    f_joint = -FRICTION_JOINT * dtheta
+
+    # Denominator for solving linear system of accelerations
+    # Derived from solving the system:
+    # 1) (M+m)x_dd + (ml cos)theta_dd = F + f_cart + ml*theta_d^2*sin
+    # 2) (ml cos)x_dd + (ml^2)theta_dd = mgl sin + f_joint
+
+    temp = (force + f_cart + M_POLE * L_COM * dtheta**2 * sin_theta) / M_total
+
+    theta_acc = (G * sin_theta - cos_theta * temp + f_joint / (M_POLE * L_COM)) / \
+                (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / M_total))
+
+    x_acc = temp - (M_POLE * L_COM * theta_acc * cos_theta) / M_total
+
+    # Euler integration
+    next_x = x + dx * dt
+    next_theta = theta + dtheta * dt
+    next_dx = dx + x_acc * dt
+    next_dtheta = dtheta + theta_acc * dt
+
+    return np.array([next_x, next_theta, next_dx, next_dtheta])
+
+
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    State-Phased Heuristic Control
+
+    This controller implements a discontinuous, multi-mode strategy based on physical intuition,
+    entirely avoiding matrix operations and textbook optimization methods. It divides the
+    problem into three distinct operational phases, each with its own hand-tuned, linear
+    feedback law.
+    """
+
+    def __init__(self):
+        """Initializes the controller state, specifically the integral term for position error."""
+        self.integral_x = 0.0
+
+    def get_action(self, state):
+        """
+        Calculates the control force based on the current system phase.
+
+        The core idea is to change the control priorities depending on the situation:
+        1. Emergency Recovery: If the pole angle is large, use aggressive gains focused
+           on correcting the angle and angular velocity, largely ignoring cart position.
+        2. Balancing: At moderate angles, use a balanced set of gains to stabilize the
+           pole while simultaneously centering the cart.
+        3. Precision Hold: When near vertical and stable, use gentle gains for energy
+           efficiency and activate an integral term to eliminate steady-state position error.
+        """
+        x, theta, dx, dtheta = state
+
+        # --- Define Phase Thresholds ---
+        # These angles determine which set of control gains to use.
+        RECOVERY_ANGLE = 0.60  # ~34 degrees. Above this is an emergency.
+        BALANCING_ANGLE = 0.10 # ~5.7 degrees. Below this, we can focus on fine-tuning.
+
+        # --- Phase 1: Emergency Recovery ---
+        if abs(theta) > RECOVERY_ANGLE:
+            # Gains are tuned to produce a strong, decisive force to arrest the fall.
+            # The focus is almost entirely on theta and dtheta.
+            p_theta = 95.0   # Aggressive proportional gain on angle
+            p_dtheta = 35.0  # Aggressive derivative gain on angular velocity (damping)
+            d_x = 0.5        # Weakly pull toward center
+            d_dx = 8.0       # Dampen cart velocity to prevent instability
+            
+            force = p_theta * theta + p_dtheta * dtheta - d_x * x - d_dx * dx
+            # Reset the integral term to prevent windup during this high-action phase.
+            self.integral_x = 0.0
+
+        # --- Phase 2: Balancing & Centering ---
+        elif abs(theta) > BALANCING_ANGLE:
+            # Gains are balanced to control both the pole and the cart effectively.
+            p_theta = 50.0   # Strong angle correction
+            p_dtheta = 25.0  # Strong angular damping
+            d_x = 7.0        # Increased focus on centering the cart
+            d_dx = 15.0      # Stronger cart damping to reduce oscillations
+            
+            force = p_theta * theta + p_dtheta * dtheta - d_x * x - d_dx * dx
+            # Keep integral term reset as we are not yet in a stable hold state.
+            self.integral_x = 0.0
+            
+        # --- Phase 3: Precision Hold ---
+        else:
+            # Gains are gentle for energy efficiency and fine control.
+            p_theta = 38.0   # Gentle angle corrections
+            p_dtheta = 20.0  # Gentle angular damping
+            d_x = 10.0       # Primary focus is on cart position
+            d_dx = 12.0      # Maintain cart stability
+            
+            # Integral action is carefully gated. It only activates when the system
+            # is truly stable (low angular velocity) to fight friction and drift.
+            if abs(dtheta) < 0.15:
+                self.integral_x += x * DT
+                self.integral_x = np.clip(self.integral_x, -4.0, 4.0)
+            else:
+                # If the pole starts swinging again, quickly reduce the integral effect.
+                self.integral_x *= 0.90
+            
+            d_i = 4.0 # Integral gain to eliminate final position error
+            
+            force = p_theta * theta + p_dtheta * dtheta - d_x * x - d_dx * dx - d_i * self.integral_x
+
+        return float(force)
+
+# EVOLVE-BLOCK-END
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    force = controller.get_action(state)
+    return float(np.clip(force, -100.0, 100.0))
+
+def run_simulation(seed=None):
+    """
+    Runs the simulation loop.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Initial state: 1.02 rad (~58 degrees)
+    # 更大初始角度配合更重更长的杆子，极具挑战性
+    state = np.array([0.0, 1.02, 0.0, 0.0])
+
+    states = [state]
+    forces = []
+
+    for _ in range(MAX_STEPS):
+        force = get_control_action(state)
+        # Clip force to realistic limits
+        force = np.clip(force, -100.0, 100.0)
+
+        next_state = simulate_pendulum_step(state, force, DT)
+
+        states.append(next_state)
+        forces.append(force)
+
+        state = next_state
+
+    return np.array(states), np.array(forces)

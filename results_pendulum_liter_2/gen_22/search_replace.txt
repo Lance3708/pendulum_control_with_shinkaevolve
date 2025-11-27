@@ -1,0 +1,124 @@
+<NAME>
+fix_integral_sign_and_damp_logic
+</NAME>
+
+<DESCRIPTION>
+Reverses the sign of the integral term to correctly eliminate steady-state position error (negative feedback instead of positive), and refines the mid-swing damping logic to be strictly stabilizing. The damping now uses a positive gain proportional to angular velocity (force proportional to dtheta creates torque opposing dtheta) and is masked to activate primarily when the pole is returning to vertical, preventing interference during the critical catch phase.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            # Direction-aware damping: only damp when moving away from vertical,
+            # and actively assist when moving towards it.
+            direction_factor = np.tanh(3.0 * theta * dtheta)
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * direction_factor
+            force = force + midswing_damp
+
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Full physics model for theta acceleration estimate, using current force
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        # Estimate the 'temp' term from the simulation dynamics, using the force calculated so far
+        temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        # This is a much more accurate predictor of the next angular acceleration
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        # We want to dampen dtheta specifically when the pole is swinging back towards vertical (recovering).
+        # A positive force on the cart creates a negative torque on the pole (opposing positive dtheta).
+        # Therefore, Force += K * dtheta provides correct damping.
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 6.0
+            # Apply damping primarily when returning to vertical (theta and dtheta have opposite signs)
+            # Use a soft mask to avoid discontinuities
+            is_returning = 0.5 * (1.0 - np.tanh(5.0 * theta * dtheta))
+            midswing_damp = K_d_midswing * dtheta * mid_swing_activation * is_returning
+            force = force + midswing_damp
+
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Full physics model for theta acceleration estimate, using current force
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        # Estimate the 'temp' term from the simulation dynamics, using the force calculated so far
+        temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        # This is a much more accurate predictor of the next angular acceleration
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+>>>>>>> REPLACE
+
+</DIFF>

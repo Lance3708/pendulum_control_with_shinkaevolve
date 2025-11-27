@@ -1,0 +1,51 @@
+<NAME>
+physics_enhanced_prediction_and_damping
+</NAME>
+
+<DESCRIPTION>
+This edit introduces two targeted, physics-based improvements to the controller to enhance its responsiveness and accuracy, aiming for a significant performance boost.
+
+1.  **Direction-Aware Mid-Swing Damping**: The existing mid-swing damping is made "smarter". By multiplying the damping force by `tanh(3.0 * theta * dtheta)`, we use the phase-plane information to determine the pole's direction of travel relative to the upright position. This ensures that damping force is primarily applied only when the pole is moving *away* from vertical, preventing overshoot. Critically, when the pole is moving *towards* vertical, this term becomes a slight assisting force, accelerating recovery. This change should improve both speed and energy efficiency during the crucial swing-through phase.
+
+2.  **High-Fidelity Predictive Compensation**: The predictive model for angular acceleration (`theta_acc_est`) is fundamentally upgraded. The previous simplified, gravity-dominated model is replaced with a full non-linear dynamics model. This new model incorporates the controller's own pending `force` output, along with friction and centripetal terms (`dtheta**2`), to generate a far more accurate one-step-ahead prediction of the pole's behavior. By allowing the controller to more accurately foresee the consequences of its actions, this change reduces corrective overshoots, enabling faster stabilization and higher final precision.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+=======
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            # Direction-aware damping: only damp when moving away from vertical,
+            # and actively assist when moving towards it.
+            direction_factor = np.tanh(3.0 * theta * dtheta)
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * direction_factor
+            force = force + midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+=======
+        # Full physics model for theta acceleration estimate, using current force
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        # Estimate the 'temp' term from the simulation dynamics, using the force calculated so far
+        temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        # This is a much more accurate predictor of the next angular acceleration
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+>>>>>>> REPLACE
+</DIFF>

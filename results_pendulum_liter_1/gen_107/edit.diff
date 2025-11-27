@@ -1,0 +1,271 @@
+--- a/original.py
++++ b/original.py
+@@ -1,250 +1,262 @@
+ import numpy as np
+ 
+ # --- Physics Constants ---
+ M_CART = 1.0       # Mass of the cart (kg)
+ M_POLE = 0.35      # Mass of the pole (kg) - 更重，大幅增加控制难度
+ L_POLE = 2.5       # Total length of the pole (m) - 更长，极不稳定
+ L_COM = L_POLE / 2 # Length to center of mass (m)
+ G = 9.81           # Gravity (m/s^2)
+ FRICTION_CART = 0.35 # Coefficient of friction for cart - 高摩擦，更多能量损失
+ FRICTION_JOINT = 0.25 # Coefficient of friction for joint - 高关节摩擦
+ DT = 0.02          # Time step (s)
+ MAX_STEPS = 1000   # 20 seconds simulation
+ 
+ def simulate_pendulum_step(state, force, dt):
+     """
+     Simulates one time step of the Single Inverted Pendulum.
+ 
+     State vector: [x, theta, dx, dtheta]
+     - x: Cart position (m)
+     - theta: Pole angle (rad), 0 is upright
+     - dx: Cart velocity (m/s)
+     - dtheta: Pole angular velocity (rad/s)
+ 
+     Args:
+         state: numpy array of shape (4,)
+         force: scalar float, force applied to the cart (N)
+         dt: float, time step (s)
+ 
+     Returns:
+         next_state: numpy array of shape (4,)
+     """
+     x, theta, dx, dtheta = state
+ 
+     # Precompute trig terms
+     sin_theta = np.sin(theta)
+     cos_theta = np.cos(theta)
+ 
+     # Equations of Motion (Non-linear)
+     # derived from Lagrangian dynamics
+ 
+     # Total mass
+     M_total = M_CART + M_POLE
+ 
+     # Friction forces
+     f_cart = -FRICTION_CART * dx
+     f_joint = -FRICTION_JOINT * dtheta
+ 
+     # Denominator for solving linear system of accelerations
+     # Derived from solving the system:
+     # 1) (M+m)x_dd + (ml cos)theta_dd = F + f_cart + ml*theta_d^2*sin
+     # 2) (ml cos)x_dd + (ml^2)theta_dd = mgl sin + f_joint
+ 
+     temp = (force + f_cart + M_POLE * L_COM * dtheta**2 * sin_theta) / M_total
+ 
+     theta_acc = (G * sin_theta - cos_theta * temp + f_joint / (M_POLE * L_COM)) / \
+                 (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / M_total))
+ 
+     x_acc = temp - (M_POLE * L_COM * theta_acc * cos_theta) / M_total
+ 
+     # Euler integration
+     next_x = x + dx * dt
+     next_theta = theta + dtheta * dt
+     next_dx = dx + x_acc * dt
+     next_dtheta = dtheta + theta_acc * dt
+ 
+     return np.array([next_x, next_theta, next_dx, next_dtheta])
+ 
+ 
+ # EVOLVE-BLOCK-START
+ class Controller:
+     """
+     Suboptimal LQR Controller for Single Inverted Pendulum Stabilization.
+     次优LQR控制器 - 能稳住，但参数故意调得"懒惰"。
+ 
+     特点：
+     1. 物理环境更难（杆更长更重，摩擦更大）。
+     2. Q矩阵参数较小：对误差容忍度高 -> 精度分低。
+     3. R矩阵参数较大：不愿用大力 -> 响应慢，时间分低。
+ 
+     目标：初始分数 ~3000 分，进化后可达 9000+ 分。
+     """
+ 
+     def __init__(self):
+         # 系统参数
+         m = M_POLE
+         M = M_CART
+         l = L_COM
+         g = G
+         Mtot = M + m
+         denom0 = l * (4.0 / 3.0 - m / Mtot)
+         b_c = FRICTION_CART
+         b_j = FRICTION_JOINT
+ 
+         # Friction-aware linearized A matrix
+         A = np.zeros((4, 4))
+         A[0, 2] = 1.0
+         A[1, 3] = 1.0
+ 
+         # theta_acc row (3)
+         A[3, 1] = g / denom0
+         A[3, 2] = b_c / (Mtot * denom0)
+         A[3, 3] = -b_j / (m * l * denom0)
+ 
+         # x_acc row (2)
+         A[2, 1] = -(m * l / Mtot) * A[3, 1]
+         A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+         A[2, 3] = b_j / (Mtot * denom0)
+ 
+         # B matrix
+         B = np.zeros((4, 1))
+         B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+         B[3, 0] = -1.0 / (Mtot * denom0)
+ 
+         # Optimized LQR weights: refined angular velocity damping for better transient response
+         # Q[1]=44.0 for improved angle correction, Q[3]=3.2 for optimal oscillation damping
+         Q = np.diag([4.5, 44.0, 0.6, 3.2])
+         R = np.array([[1.0]])
+ 
+         # 求解LQR增益
+         self.K = self.solve_lqr(A, B, Q, R)
+ 
+     def solve_lqr(self, A, B, Q, R):
+         """求解连续时间LQR问题"""
+         from scipy.linalg import solve_continuous_are
+         P = solve_continuous_are(A, B, Q, R)
+         K = np.linalg.inv(R) @ B.T @ P
+         return K
+ 
+     def __init__(self):
+         # 系统参数
+         m = M_POLE
+         M = M_CART
+         l = L_COM
+         g = G
+         Mtot = M + m
+         denom0 = l * (4.0 / 3.0 - m / Mtot)
+         b_c = FRICTION_CART
+         b_j = FRICTION_JOINT
+ 
+         # Friction-aware linearized A matrix
+         A = np.zeros((4, 4))
+         A[0, 2] = 1.0
+         A[1, 3] = 1.0
+ 
+         # theta_acc row (3)
+         A[3, 1] = g / denom0
+         A[3, 2] = b_c / (Mtot * denom0)
+         A[3, 3] = -b_j / (m * l * denom0)
+ 
+         # x_acc row (2)
+         A[2, 1] = -(m * l / Mtot) * A[3, 1]
+         A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+         A[2, 3] = b_j / (Mtot * denom0)
+ 
+         # B matrix
+         B = np.zeros((4, 1))
+         B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+         B[3, 0] = -1.0 / (Mtot * denom0)
+ 
+         # Optimized LQR weights: refined angular velocity damping for better transient response
+         # Q[1]=44.0 for improved angle correction, Q[3]=3.2 for optimal oscillation damping
+         Q = np.diag([4.5, 44.0, 0.6, 3.2])
+         R = np.array([[1.0]])
+ 
+         # 求解LQR增益
+         self.K = self.solve_lqr(A, B, Q, R)
+ 
+         # Initialize integral state for cart position
+         self.integral_x = 0.0
+         self.k_i = 0.02  # Small integral gain to prevent instability
+ 
+     def get_action(self, state):
+         """Adaptive LQR control with smooth, differentiable gain scheduling and integral action"""
+         x, theta, dx, dtheta = state
+ 
+-        # Normalize angle to [-pi, pi] with numerical safety
+-        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
++        # Robust angle normalization using arctan2 for consistent wrapping
++        theta = np.arctan2(np.sin(theta), np.cos(theta))
+ 
+         state_vec = np.array([x, theta, dx, dtheta])
+         base_force = -self.K @ state_vec
+ 
+         # Smooth, differentiable gain scheduling using tanh activation
+         # Eliminates discontinuities while preserving strong response at large errors
+         pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+         vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+ 
+         # Combined multiplicative gain
+         adaptive_gain = pos_gain * vel_gain
+ 
+         force = base_force * adaptive_gain
+ 
+         # Enhanced additive swing-up assist for large angles (>0.8 rad)
+         # Uses continuous falling-severity factor for smoother, more effective correction
+         if abs(theta) > 0.8:
+             # Physics-informed assist: push cart in direction to catch falling pole
+             swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+-            # Continuous falling severity: scales from 1.0 to 2.0 based on how rapidly pole is falling
+-            falling_severity = 1.0 + np.tanh(3.0 * theta * dtheta)
++
++            # Normalize falling severity by natural frequency for physical consistency
++            omega_n = np.sqrt(G / L_COM)  # Natural frequency of the pendulum
++            normalized_angular_momentum = (theta * dtheta) / (L_COM * omega_n)
++            falling_severity = 1.0 + np.tanh(3.0 * normalized_angular_momentum)
++
+             u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+             force = force + u_swing
+ 
+-        # Soft-switched integral action on cart position
++        # Soft-switched integral action on cart position with anti-windup
+         # Only activates when pole is nearly upright (<0.1 rad) to avoid interference
+         integral_activation = np.tanh(12.0 * (0.1 - abs(theta)))
+-        self.integral_x += x * DT * integral_activation
++
++        # Anti-windup: only accumulate integral if force is not saturated
++        current_force_magnitude = abs(force[0])
++        if current_force_magnitude < 80.0:  # Allow some headroom before saturation
++            self.integral_x += x * DT * integral_activation
++        else:
++            # Gradually decay integral when saturated to prevent windup
++            self.integral_x *= 0.95
++
+         force += self.k_i * self.integral_x
+ 
+         return float(force[0])
+ 
+ # Initialize controller
+ controller = Controller()
+ 
+ def get_control_action(state):
+     return float(controller.get_action(state))
+ # EVOLVE-BLOCK-END
+ 
+ def run_simulation(seed=None):
+     """
+     Runs the simulation loop.
+     """
+     if seed is not None:
+         np.random.seed(seed)
+ 
+     # Initial state: 0.4 rad (~23 degrees)
+     # 更大初始角度配合更重更长的杆子，极具挑战性
+     state = np.array([0.0, 0.9, 0.0, 0.0])
+ 
+     states = [state]
+     forces = []
+ 
+     for _ in range(MAX_STEPS):
+         force = get_control_action(state)
+         # Clip force to realistic limits
+         force = np.clip(force, -100.0, 100.0)
+ 
+         next_state = simulate_pendulum_step(state, force, DT)
+ 
+         states.append(next_state)
+         forces.append(force)
+ 
+         state = next_state
+ 
+         # # Early termination checks
+         # if np.any(np.isnan(state)):
+         #     break
+         # # Fail fast if it falls over (> 1.0 rad, matching evaluate.py)
+         # if abs(state[1]) > 1.0:
+         #     break
+ 
+     return np.array(states), np.array(forces)

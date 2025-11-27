@@ -1,0 +1,122 @@
+<NAME>
+soft_integral_cart_centering
+</NAME>
+<DESCRIPTION>
+Introduces soft-switched integral control on cart position error to eliminate residual stable_x_error=0.03, improving base_score and precision toward full success_bonus. Activation via tanh(12*(0.1-abs(theta))) ensures engagement only near equilibrium (|theta|&lt;~0.1 rad), preserving robustness for large angles/initial conditions. Accumulation scaled by activation prevents windup; ki=2.8 tuned ~1.3x nominal Kx estimate for aggressive zeroing without overshoot/energy penalty.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Soft integral state
+        self.x_int = 0.0
+        self.ki = 2.8
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+add_soft_integral_feedback
+</NAME>
+<DESCRIPTION>
+Integrate the new x_int in get_action: update only when active, clip for anti-windup, add scaled -ki*x_int to force. Placed after adaptive LQR to augment without gain scaling (integral gentle near eq).
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Simple multiplicative combination - proven most effective
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+        # Simple multiplicative combination - proven most effective
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Soft integral on cart position near equilibrium
+        integral_scale = np.tanh(12.0 * (0.1 - abs(theta)))
+        self.x_int += x * DT * integral_scale
+        self.x_int = np.clip(self.x_int, -2.0, 2.0)
+        u_int = -self.ki * self.x_int
+        force += integral_scale * u_int
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+discrete_lqr_zoh
+</NAME>
+<DESCRIPTION>
+Replace continuous LQR with discrete-time equivalent using ZOH discretization (Ad/Bd from cont2discrete, Qd≈Q*DT, Rd=R), solved via solve_discrete_are. Matches simulator's Euler/forward integration exactly, reducing timing mismatch in transient accelerations for faster convergence (target: stabilization_time &lt;192 steps, +100-200 time_bonus).
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def solve_lqr(self, A, B, Q, R):
+        """Solve discrete-time LQR with ZOH for Euler matching"""
+        from scipy.signal import cont2discrete
+        from scipy.linalg import solve_discrete_are
+
+        n = A.shape[0]
+        C = np.eye(n)
+        D = np.zeros((n, 1))
+        Ad, Bd, _, _ = cont2discrete((A, B, C, D), DT, method='zoh')
+
+        Qd = Q * DT
+        Rd = R
+        P = solve_discrete_are(Ad, Bd, Qd, Rd)
+        K = np.linalg.solve(Bd.T @ P @ Bd + Rd, Bd.T @ P @ Ad)
+        return K
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+robust_arctan2_theta_norm
+</NAME>
+<DESCRIPTION>
+Upgrade angle normalization to arctan2(sin(theta), cos(theta)) for perfect handling of any wraparound/accumulation errors under rapid dtheta, ensuring precise abs(theta) thresholds in scheduling/integral without modulo numerical artifacts.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Robust angle normalization
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+=======
+        # Robust angle normalization
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+normalized_swingup_assist
+</NAME>
+<DESCRIPTION>
+Add novel physics-normalized swing-up assist: modulation by falling_severity = (theta*dtheta)/(L_COM * sqrt(G/L_COM)) scales impulse by dimensionless divergence rate (natural freq-normalized angular momentum flux), optimal for long-pole inertia/dynamics. Boosts early recovery from 0.9 rad initial, synergizing with discrete LQR for reduced stabilization_time while maintaining low energy.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        force += integral_scale * u_int
+
+        return float(force[0])
+=======
+        force += integral_scale * u_int
+
+        # Physics-normalized swing-up assist for large angles
+        if abs(theta) > 0.8:
+            omega_n = np.sqrt(G / L_COM)
+            falling_severity = (theta * dtheta) / (L_COM * omega_n)
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + 0.5 * float(theta * dtheta > 0)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor * abs(falling_severity)
+            force += u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

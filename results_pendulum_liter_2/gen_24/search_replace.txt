@@ -1,0 +1,202 @@
+<NAME>
+make_base_force_scalar_and_fix_temp_est
+</NAME>
+<DESCRIPTION>
+Convert base_force to float immediately after LQR computation to ensure scalar arithmetic throughout, preventing potential array broadcasting issues. Update temp_est to use 'force' (now scalar) instead of 'force[0]'. This cleans up code and ensures consistency, with no performance impact.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+=======
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = float(-self.K @ state_vec)
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Full physics model for theta acceleration estimate, using current force
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        # Estimate the 'temp' term from the simulation dynamics, using the force calculated so far
+        temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        # This is a much more accurate predictor of the next angular acceleration
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+=======
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Full physics model for theta acceleration estimate, using current force
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        # Estimate the 'temp' term from the simulation dynamics, using the force calculated so far
+        temp_est = (force + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        # This is a much more accurate predictor of the next angular acceleration
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+increase_integral_authority
+</NAME>
+<DESCRIPTION>
+Increase base integral gain to 1.2 and clip limits to [-4,4] to provide more authority against friction-induced steady-state offsets, directly targeting the high stable_x_error (0.36) while maintaining low energy use.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+=======
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 1.2
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+adaptive_integral_gain_scheduling
+</NAME>
+<DESCRIPTION>
+Add state-dependent integral gain scheduling K_i_adapt = K_i * exp(-2*(|theta| + 0.5*|dtheta|)) to aggressively reduce integral action during high-error transients (prevents erroneous accumulation/windup), while preserving full gain near equilibrium for precise x-centering. Widens clip limits synergistically with prior edit. Expected to cut stable_x_error significantly without slowing stabilization.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+
+        return float(force[0])
+=======
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive gain: full strength near equilibrium, reduced in transients
+        k_i_adapt = self.K_i * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -4.0, 4.0)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = k_i_adapt * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+
+        return float(force)
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+energy_risk_adaptive_gain
+</NAME>
+<DESCRIPTION>
+Modulate adaptive_gain with Lyapunov-inspired energy-risk metric to de-boost gains in high-energy states (>1.2J), preventing over-aggressive corrections that cause overshoot/oscillations/energy waste. Aligns with physical intuition: gentle near balance, decisive when falling. Builds on predictive strengths for smoother convergence and potential time/energy gains.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+=======
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        # Energy-risk modulation: reduce gain in high-energy states to avoid overshoot
+        e_risk = 0.5 * self.M * dx**2 + self.m * self.g * self.l * (1 - np.cos(theta))
+        if e_risk > 1.2:
+            adaptive_gain *= min(1.0, 1.5 / (1.0 + e_risk))
+
+        force = base_force * adaptive_gain
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+direction_aware_midswing_damping
+</NAME>
+<DESCRIPTION>
+Refine mid-swing damping with phase-plane sign logic: multiply by tanh(3*theta*dtheta) to apply damping selectively when moving away from upright (theta*dtheta>0), preserving recovery energy while suppressing dangerous overshoots. Adjust K_d to 2.5 (proven value) and add explicit negative sign for consistent opposition to dtheta. Reduces energy use and improves stability margins.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        # We want to dampen dtheta specifically when the pole is swinging back towards vertical (recovering).
+        # A positive force on the cart creates a negative torque on the pole (opposing positive dtheta).
+        # Therefore, Force += K * dtheta provides correct damping.
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 6.0
+            # Apply damping primarily when returning to vertical (theta and dtheta have opposite signs)
+            # Use a soft mask to avoid discontinuities
+            is_returning = 0.5 * (1.0 - np.tanh(5.0 * theta * dtheta))
+            midswing_damp = K_d_midswing * dtheta * mid_swing_activation * is_returning
+            force = force + midswing_damp
+=======
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            direction_factor = np.tanh(3.0 * theta * dtheta)
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * direction_factor
+            force += midswing_damp
+>>>>>>> REPLACE
+</DIFF>

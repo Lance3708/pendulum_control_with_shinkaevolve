@@ -1,0 +1,286 @@
+<NAME>
+phase_driven_intuitive_controller
+</NAME>
+
+<DESCRIPTION>
+The current program uses LQR-based control which violates the constraints. I'm replacing it with a phase-driven intuitive controller that mimics human balancing behavior. This approach divides the control problem into distinct phases (Emergency Recovery, Swing Control, Precision Hold) and uses simple, physics-inspired rules for each phase. The controller focuses on energy management and predictive positioning without complex matrix operations.
+
+Key improvements:
+1. Replaces LQR with phase-based state machine
+2. Uses energy-aware control for better efficiency
+3. Implements predictive cart positioning
+4. Adds adaptive damping based on pole behavior
+5. Maintains the good pole stabilization while improving position centering
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class Controller:
+    """
+    Adaptive Cross-Coupled LQR with Mid-Swing Damping and Predictive Compensation
+
+    Key innovations:
+    1. State-dependent cross-coupling in Q-matrix for better coordination
+    2. Mid-swing angular damping to suppress momentum overshoot
+    3. Predictive momentum compensation for earlier counteraction
+    4. Refined integral control with dual gating
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.Mtot = self.M + self.m
+        self.denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
+        self.b_c = FRICTION_CART
+        self.b_j = FRICTION_JOINT
+
+        # Build base A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+        A[3, 1] = self.g / self.denom0
+        A[3, 2] = self.b_c / (self.Mtot * self.denom0)
+        A[3, 3] = -self.b_j / (self.m * self.l * self.denom0)
+        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
+        A[2, 2] = -self.b_c / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
+        A[2, 3] = self.b_j / (self.Mtot * self.denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * self.denom0)
+        B[3, 0] = -1.0 / (self.Mtot * self.denom0)
+
+        # Base Q with proven optimal diagonal weights
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        # Add cross-coupling terms for theta-dtheta coordination
+        Q[1, 3] = 0.8
+        Q[3, 1] = 0.8
+        R = np.array([[1.0]])
+
+        self.A = A
+        self.B = B
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+class Controller:
+    """
+    Phase-Driven Intuitive Controller
+
+    This controller mimics human balancing intuition through distinct phases:
+    1. Emergency Recovery: Aggressive cart positioning under falling pole
+    2. Swing Control: Energy-managed swing with predictive positioning
+    3. Precision Hold: Fine-tuned centering with minimal energy
+
+    No complex math - just physics-inspired rules and phase transitions.
+    """
+
+    def __init__(self):
+        # System parameters for physics calculations
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.Mtot = self.M + self.m
+
+        # Controller state
+        self.integral_x = 0.0
+        self.prev_theta = 0.0
+        self.energy_history = []
+
+        # Natural frequency for timing
+        self.omega_n = np.sqrt(G / L_COM)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        # We want to dampen dtheta specifically when the pole is swinging back towards vertical (recovering).
+        # A positive force on the cart creates a negative torque on the pole (opposing positive dtheta).
+        # Therefore, Force += K * dtheta provides correct damping.
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 6.0
+            # Apply damping primarily when returning to vertical (theta and dtheta have opposite signs)
+            # Use a soft mask to avoid discontinuities
+            is_returning = 0.5 * (1.0 - np.tanh(5.0 * theta * dtheta))
+            midswing_damp = K_d_midswing * dtheta * mid_swing_activation * is_returning
+            force = force + midswing_damp
+
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Full physics model for theta acceleration estimate, using current force
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        # Estimate the 'temp' term from the simulation dynamics, using the force calculated so far
+        temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        # This is a much more accurate predictor of the next angular acceleration
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Phase-driven intuitive control"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Calculate system energy for phase decisions
+        kinetic_energy = 0.5 * self.M * dx**2 + 0.5 * self.m * (dx**2 + (self.l * dtheta)**2 + 2 * dx * self.l * dtheta * np.cos(theta))
+        potential_energy = self.m * self.g * self.l * (1 - np.cos(theta))
+        total_energy = kinetic_energy + potential_energy
+
+        # Track energy trend
+        self.energy_history.append(total_energy)
+        if len(self.energy_history) > 10:
+            self.energy_history.pop(0)
+        energy_trend = total_energy - self.energy_history[0] if len(self.energy_history) > 1 else 0
+
+        # --- PHASE DETECTION ---
+
+        # Emergency: Pole falling away from vertical with high energy
+        is_emergency = abs(theta) > 0.4 and theta * dtheta > 0.1 and total_energy > 15.0
+
+        # Precision: Very close to target state with low energy
+        is_precision = abs(theta) < 0.08 and abs(dtheta) < 0.2 and abs(dx) < 0.2 and total_energy < 5.0
+
+        # --- PHASE-BASED CONTROL ---
+
+        if is_emergency:
+            # PHASE 1: Emergency Recovery - Get cart under pole NOW
+            target_x = self.l * np.sin(theta)  # Position under pole's COM
+            target_dx = self.l * dtheta * np.cos(theta)  # Match pole's horizontal velocity
+
+            # Aggressive PD control to reach target
+            force = 80.0 * (target_x - x) + 30.0 * (target_dx - dx)
+
+            # Reset integral during emergency
+            self.integral_x *= 0.8
+
+        elif is_precision:
+            # PHASE 3: Precision Hold - Minimal energy centering
+            predict_time = 0.08  # Look ahead slightly
+            theta_future = theta + dtheta * predict_time
+            x_future = x + dx * predict_time
+
+            # Update integral for position correction
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -2.0, 2.0)
+
+            # Gentle, precise control
+            force = (120.0 * theta_future +    # Strong angle correction
+                     28.0 * dtheta +           # Angular damping
+                     6.0 * x_future +          # Position correction
+                     9.0 * dx +                # Velocity damping
+                     2.5 * self.integral_x)    # Integral action
+
+        else:
+            # PHASE 2: Swing Control - Energy management with prediction
+            predict_time = 0.12
+            theta_future = theta + dtheta * predict_time
+
+            # Predict where pole will be and position cart accordingly
+            future_com_x = self.l * np.sin(theta_future)
+            cart_lead_distance = 0.3 * future_com_x  # Lead the pole slightly
+
+            # Energy-aware damping
+            if energy_trend > 0:  # Gaining energy, need more damping
+                damping_factor = 1.5
+            else:  # Losing energy, less damping
+                damping_factor = 0.8
+
+            # Balanced control
+            pole_force = 100.0 * theta_future + 22.0 * dtheta * damping_factor
+            cart_force = 8.0 * (cart_lead_distance - x) + 12.0 * dx
+
+            force = pole_force + cart_force
+
+            # Slow integral decay
+            self.integral_x *= 0.98
+
+        # Direction-aware mid-swing damping (when returning to vertical)
+        if 0.25 < abs(theta) < 0.85 and theta * dtheta < 0:
+            midswing_damp = 5.0 * dtheta * np.exp(-3.0 * (abs(theta) - 0.5)**2)
+            force += midswing_damp
+
+        # Store previous theta for trend analysis
+        self.prev_theta = theta
+
+        return float(force)
+>>>>>>> REPLACE
+</DIFF>

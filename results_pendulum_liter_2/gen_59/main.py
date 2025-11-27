@@ -1,0 +1,256 @@
+import numpy as np
+
+# --- Physics Constants ---
+M_CART = 1.0       # Mass of the cart (kg)
+M_POLE = 0.35      # Mass of the pole (kg) - 更重，大幅增加控制难度
+L_POLE = 2.5       # Total length of the pole (m) - 更长，极不稳定
+L_COM = L_POLE / 2 # Length to center of mass (m)
+G = 9.81           # Gravity (m/s^2)
+FRICTION_CART = 0.35 # Coefficient of friction for cart - 高摩擦，更多能量损失
+FRICTION_JOINT = 0.25 # Coefficient of friction for joint - 高关节摩擦
+DT = 0.02          # Time step (s)
+MAX_STEPS = 1000   # 20 seconds simulation
+
+def simulate_pendulum_step(state, force, dt):
+    """
+    Simulates one time step of the Single Inverted Pendulum.
+
+    State vector: [x, theta, dx, dtheta]
+    - x: Cart position (m)
+    - theta: Pole angle (rad), 0 is upright
+    - dx: Cart velocity (m/s)
+    - dtheta: Pole angular velocity (rad/s)
+
+    Args:
+        state: numpy array of shape (4,)
+        force: scalar float, force applied to the cart (N)
+        dt: float, time step (s)
+
+    Returns:
+        next_state: numpy array of shape (4,)
+    """
+    x, theta, dx, dtheta = state
+
+    # Precompute trig terms
+    sin_theta = np.sin(theta)
+    cos_theta = np.cos(theta)
+
+    # Equations of Motion (Non-linear)
+    # derived from Lagrangian dynamics
+
+    # Total mass
+    M_total = M_CART + M_POLE
+
+    # Friction forces
+    f_cart = -FRICTION_CART * dx
+    f_joint = -FRICTION_JOINT * dtheta
+
+    # Denominator for solving linear system of accelerations
+    # Derived from solving the system:
+    # 1) (M+m)x_dd + (ml cos)theta_dd = F + f_cart + ml*theta_d^2*sin
+    # 2) (ml cos)x_dd + (ml^2)theta_dd = mgl sin + f_joint
+
+    temp = (force + f_cart + M_POLE * L_COM * dtheta**2 * sin_theta) / M_total
+
+    theta_acc = (G * sin_theta - cos_theta * temp + f_joint / (M_POLE * L_COM)) / \
+                (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / M_total))
+
+    x_acc = temp - (M_POLE * L_COM * theta_acc * cos_theta) / M_total
+
+    # Euler integration
+    next_x = x + dx * dt
+    next_theta = theta + dtheta * dt
+    next_dx = dx + x_acc * dt
+    next_dtheta = dtheta + theta_acc * dt
+
+    return np.array([next_x, next_theta, next_dx, next_dtheta])
+
+
+# EVOLVE-BLOCK-START
+class InverseDynamicsController:
+    """
+    Cascade Controller with Nonlinear Inverse Dynamics
+    
+    Philosophy: 
+    Instead of linearizing the system (LQR), we use the known non-linear physics 
+    to invert the dynamics. A 'Virtual Pilot' (Outer Loop) determines the necessary 
+    lean angle to manage cart position, while an 'Actuator' (Inner Loop) calculates 
+    the exact force required to achieve that angle, compensating for gravity, 
+    inertia, and friction analytically.
+    """
+    
+    def __init__(self):
+        # Physics parameters for the internal model
+        self.M = M_CART
+        self.m = M_POLE
+        self.L = L_COM
+        self.g = G
+        self.b_cart = FRICTION_CART
+        self.b_joint = FRICTION_JOINT
+        self.M_tot = self.M + self.m
+        
+        # State memory for integral action and derivatives
+        self.integral_x = 0.0
+        
+        # Performance tuning limits
+        self.max_tilt = 0.30  # Max commanded lean angle (rad)
+        
+    def get_action(self, state):
+        x, theta, dx, dtheta = state
+        
+        # --- PHASE 1: State Estimation & Pre-processing ---
+        # Normalize theta
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        
+        # Prediction Lookahead (compensate for actuator lag/discrete steps)
+        # Simple Euler prediction of state in 0.5*DT
+        pred_theta = theta + dtheta * 0.5 * DT
+        pred_dtheta = dtheta # Assuming constant vel for small step
+        
+        # --- PHASE 2: Outer Loop (Virtual Pilot) ---
+        # Determines "Where should the pole point?" to satisfy position goals
+        
+        # 2a. Integral Error Calculation (Gated)
+        # Only accumulate if stable-ish and near center, to avoid windup during catch
+        if abs(theta) < 0.25 and abs(x) < 2.5:
+            # Decay integral when error is small to prevent overshoot
+            decay = 0.98 if abs(x) < 0.1 else 1.0
+            self.integral_x = (self.integral_x + x * DT) * decay
+            # Hard clamp
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.9  # Rapidly drain integral during upsets
+            
+        # 2b. PID for Cart Position -> Target Angle
+        # To go Left (x decreases), we need the pole to lean Left (theta negative).
+        # This creates a reaction force pushing the cart Left.
+        # Therefore, Target Angle is NEGATIVE proportional to X.
+        
+        Kp_x = 0.20 # Aggressive position correction
+        Kd_x = 0.40 # High damping to prevent oscillation
+        Ki_x = 0.18 # Strong integral to kill offset
+        
+        target_theta = -(Kp_x * x + Kd_x * dx + Ki_x * self.integral_x)
+        
+        # 2c. Safety Limiter
+        # Don't command dangerous angles.
+        target_theta = np.clip(target_theta, -self.max_tilt, self.max_tilt)
+        
+        # --- PHASE 3: Inner Loop (Actuator) ---
+        # Determines "What angular acceleration do we need?"
+        
+        # Switch behavior based on urgency
+        is_emergency = abs(theta) > 0.45
+        
+        if is_emergency:
+            # EMERGENCY MODE: Ignore Position, Pure Stabilization
+            # High stiffness, high damping
+            Kp_theta = 100.0
+            Kd_theta = 25.0
+            target_theta = 0.0 # Override target, just get vertical
+        else:
+            # PRECISION MODE: Track the target angle
+            # Tuned for tracking bandwidth
+            Kp_theta = 55.0
+            Kd_theta = 15.0
+            
+        # PD Control on Angle
+        theta_error = pred_theta - target_theta
+        desired_alpha = -Kp_theta * theta_error - Kd_theta * pred_dtheta
+        
+        # --- PHASE 4: Inverse Dynamics (Force Calculation) ---
+        # We want theta_acc == desired_alpha.
+        # Solve EOM for Force.
+        # EOM Ref: alpha = (g*sin - cos*temp + f_j/mL) / denom
+        # where temp = (F + f_c + centrifugal) / Mtot
+        
+        sin_t = np.sin(theta)
+        cos_t = np.cos(theta)
+        
+        # Denominator term from physics engine
+        denom = self.L * (4.0/3.0 - self.m * (cos_t**2) / self.M_tot)
+        
+        # Check singularity (pole horizontal)
+        if abs(cos_t) < 0.1:
+            # Near horizontal, we have little control authority via cart acceleration
+            # Just push hard in direction of error to catch it
+            force = 100.0 * np.sign(theta_error)
+        else:
+            # 1. Calculate required 'temp' term from alpha equation
+            # alpha * denom = g*sin - cos*temp + friction_term
+            # cos*temp = g*sin + friction_term - alpha*denom
+            
+            # Note: We neglect joint friction in the inverse model for stability,
+            # letting the PD term handle it as a disturbance.
+            numerator = self.g * sin_t - desired_alpha * denom 
+            target_temp = numerator / cos_t
+            
+            # 2. Calculate Force from temp equation
+            # temp = (F + f_cart + centrifugal) / Mtot
+            # F = temp * Mtot - f_cart - centrifugal
+            
+            f_cart_est = -self.b_cart * dx
+            centrifugal = self.m * self.L * (dtheta**2) * sin_t
+            
+            force = target_temp * self.M_tot - f_cart_est - centrifugal
+            
+            # --- PHASE 5: Augmentation & Heuristics ---
+            
+            # Friction Compensation (Feedforward)
+            # Add a kick to overcome static/dynamic friction
+            force += 2.5 * dx # Damping/Compensation mix
+            
+            # Stabilization Boost for the initial high-angle drop
+            # The inverse dynamics assumes linear response, but at 58 deg, 
+            # errors integrate fast. Add a raw PD overlay.
+            if is_emergency:
+                # Add raw "catch" force
+                # We need massive force to catch the heavy pole
+                catch_gain = 25.0 
+                force += catch_gain * (np.sin(theta) + 0.1 * dtheta)
+        
+        return float(force)
+
+# EVOLVE-BLOCK-END
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    force = controller.get_action(state)
+    return float(np.clip(force, -100.0, 100.0))
+
+def run_simulation(seed=None):
+    """
+    Runs the simulation loop.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Initial state: 1.02 rad (~58 degrees)
+    # 更大初始角度配合更重更长的杆子，极具挑战性
+    state = np.array([0.0, 1.02, 0.0, 0.0])
+
+    states = [state]
+    forces = []
+
+    for _ in range(MAX_STEPS):
+        force = get_control_action(state)
+        # Clip force to realistic limits
+        force = np.clip(force, -100.0, 100.0)
+
+        next_state = simulate_pendulum_step(state, force, DT)
+
+        states.append(next_state)
+        forces.append(force)
+
+        state = next_state
+
+        # # Early termination checks
+        # if np.any(np.isnan(state)):
+        #     break
+        # # Fail fast if it falls over (> 1.0 rad, matching evaluate.py)
+        # if abs(state[1]) > 1.0:
+        #     break
+
+    return np.array(states), np.array(forces)

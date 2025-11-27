@@ -1,0 +1,36 @@
+{
+    "combined_score": 0.0,
+    "public": {
+        "score": 0.0,
+        "base_score": 26.59710207359843,
+        "time_bonus": 1.0063878837075355,
+        "energy_bonus": 1926.1698311279617,
+        "success_bonus": 0.0,
+        "stabilization_time": 1000,
+        "stabilization_ratio": 1.0,
+        "avg_energy_per_step": 0.07925990383663087,
+        "total_energy": 79.25990383663087,
+        "mean_step_reward": 0.026597102073598427,
+        "final_theta_error": 0.7794578384273088,
+        "final_x_error": 3.658431950433199,
+        "stable_theta_error": 1.511515459165113,
+        "stable_x_error": 3.0838713682657506
+    },
+    "private": {
+        "oscillation_penalty": -44.0,
+        "angle_oscillation_penalty": -1638.0,
+        "boundary_penalty": -1000.0,
+        "unstable_penalty": -500.0,
+        "max_theta": 3.140764679477571,
+        "max_x": 4.699252688759485,
+        "max_force": 100.0,
+        "force_std": 28.152993623820226
+    },
+    "execution_time_mean": 0.01912697900115745,
+    "execution_time_std": 0.0,
+    "num_valid_runs": 0,
+    "num_invalid_runs": 1,
+    "all_validation_errors": [
+        "Pole fell over (> 1.5 rad)"
+    ]
+}

@@ -1,0 +1,78 @@
+<NAME>
+correct_linear_model_friction_tune_gains
+</NAME>
+
+<DESCRIPTION>
+As an expert control theorist, the primary issue limiting performance is the inaccurate linearization of the state-space model (A, B matrices), which uses a simplified point-mass approximation instead of matching the rod model's exact linearization (including the 4/3 factor in the denominator). This mismatch causes suboptimal gains K, leading to slow response (low time_bonus) and mediocre precision (low base_score). Correct A[2,1], A[3,1], B to derive precisely from the nonlinear equations at theta=0. Add diagonal viscous friction damping terms to A for high-friction setup. Retain zero cross-damping for simplicity (small effect). Simultaneously tune Q higher on states (esp. theta, velocities) and R lower to accelerate stabilization (target ~halving time_bonus loss) while keeping energy_bonus high (room exists: total_energy=3.29 very low). Expected: base_score +200+, time_bonus +1000+, total ~5000+. Structural fix + tuning directly maximizes score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # 系统参数
+        m = M_POLE  # 摆杆质量
+        M = M_CART  # 小车质量
+        l = L_COM   # 质心距离
+        g = G       # 重力加速度
+
+        # 线性化状态空间模型
+        A = np.array([
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, -m*g/M, 0, 0],
+            [0, (m+M)*g/(M*l), 0, 0]
+        ])
+
+        B = np.array([
+            [0],
+            [0],
+            [1/M],
+            [-1/(M*l)]
+        ])
+
+        # LQR权重矩阵（更保守的次优设置，留出充分进化空间）
+        # Q: 显著降低权重，高度容忍误差 - 导致基础分数低
+        # R: 大幅增加权重，极度限制出力 - 导致响应慢，能耗高
+        Q = np.diag([2.0, 8.0, 0.05, 0.4])    # [x, theta, dx, dtheta] (更保守)
+        R = np.array([[3.0]])                  # 控制力惩罚极大 (非常不愿意用大力)
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # 系统参数
+        m = M_POLE  # 摆杆质量
+        M = M_CART  # 小车质量
+        l = L_COM   # 质心距离
+        g = G       # 重力加速度
+        fc = FRICTION_CART
+        fj = FRICTION_JOINT
+
+        M_total = M + m
+        alpha = 4.0 / 3.0 - m / M_total
+
+        # 精确线性化模型（匹配非线性动力学，包括摩擦阻尼）
+        A = np.array([
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [0.0, -m * g / (M_total * alpha), -fc / M_total, 0.0],
+            [0.0, g / (l * alpha), 0.0, -fj / (m * l**2 * alpha)]
+        ])
+
+        Bx = 1.0 / M_total + m / (M_total**2 * alpha)
+        Btheta = -1.0 / (M_total * l * alpha)
+        B = np.array([
+            [0.0],
+            [0.0],
+            [Bx],
+            [Btheta]
+        ])
+
+        # LQR权重矩阵（优化：更激进，提升速度和精度）
+        # Q: 增加位置/角速度权重 -> 更快收敛，提高时间/基础分
+        # R: 降低控制惩罚 -> 允许更大出力，仍高效
+        Q = np.diag([5.0, 30.0, 0.5, 2.0])    # [x, theta, dx, dtheta] 优化
+        R = np.array([[1.0]])                  # 控制力惩罚适中
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+>>>>>>> REPLACE
+</DIFF>

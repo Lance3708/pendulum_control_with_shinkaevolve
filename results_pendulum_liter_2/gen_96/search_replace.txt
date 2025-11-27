@@ -1,0 +1,27 @@
+<NAME>
+asymmetric_integral_bounds
+</NAME>
+
+<DESCRIPTION>
+The current integral control uses symmetric bounds (-1.2, 1.2) for the integral windup protection. This doesn't account for the system's natural tendency to drift in one direction due to friction or initial conditions. By making the bounds asymmetric and adaptive based on cart position, we allow more aggressive correction when the cart is far from center in a particular direction. The modification adds an offset proportional to cart position, effectively "leaning" the integral limits toward the center. This helps overcome static friction biases and improves final centering accuracy, directly targeting the stable_x_error metric which has room for improvement (0.26m). The change preserves all existing logic while enhancing the precision phase behavior.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            # Tighter clipping to prevent integral windup and improve precision
+            self.integral_x = np.clip(self.integral_x, -1.2, 1.2)
+        else:
+            self.integral_x *= 0.95  # Gradual decay when not in the balancing zone
+=======
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            # Asymmetric windup limits with position-dependent bias to improve centering
+            lower_bound = -1.2 + 0.4 * x
+            upper_bound = 1.2 + 0.4 * x
+            self.integral_x = np.clip(self.integral_x, lower_bound, upper_bound)
+        else:
+            self.integral_x *= 0.95  # Gradual decay when not in the balancing zone
+>>>>>>> REPLACE
+</DIFF>

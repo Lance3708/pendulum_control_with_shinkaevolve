@@ -1,0 +1,37 @@
+<NAME>
+discrete_lqr_design
+</NAME>
+
+<DESCRIPTION>
+The current controller uses a continuous-time LQR design (via solve_continuous_are) but operates in a discrete-time simulation environment with Euler integration. This creates a model mismatch that can lead to suboptimal performance and potential instability margins.
+
+By discretizing the system dynamics using zero-order hold (ZOH) method at the exact simulation timestep (DT=0.02s), we align the controller design with the actual discrete implementation. This eliminates the continuous-discrete domain mismatch, improves phase accuracy, and enhances robustness.
+
+The discretization process converts the continuous A,B matrices to their discrete equivalents Ad,Bd which are then used to solve the discrete algebraic Riccati equation (DARE). This yields gains K that are optimal for the actual discrete system being controlled, potentially reducing stabilization time and improving energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def solve_lqr(self, A, B, Q, R):
+        """Solve discrete-time LQR using ZOH discretization"""
+        from scipy.linalg import solve_discrete_are
+        from scipy.signal import cont2discrete
+
+        # Convert continuous system to discrete using ZOH method
+        sys_c = (A, B, np.eye(4), np.zeros((4,1)))
+        sys_d = cont2discrete(sys_c, DT, method='zoh')
+        Ad, Bd = sys_d[0], sys_d[1]
+
+        # Solve discrete algebraic Riccati equation
+        P = solve_discrete_are(Ad, Bd, Q, R)
+        K = np.linalg.inv(R + Bd.T @ P @ Bd) @ (Bd.T @ P @ Ad)
+        return K
+>>>>>>> REPLACE
+</DIFF>

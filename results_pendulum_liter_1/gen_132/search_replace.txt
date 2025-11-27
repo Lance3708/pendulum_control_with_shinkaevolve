@@ -1,0 +1,32 @@
+<NAME>
+integral_windup_prevention_with_angle_velocity_gate
+</NAME>
+
+<DESCRIPTION>
+The key innovation here is to prevent integral windup more effectively by combining the angle-based gate with an angular velocity condition. The current implementation uses a leaky integrator (multiplies by 0.95) but this can still allow significant windup during fast transients. By adding a velocity-dependent factor to the integral gate, we ensure that integral action is suppressed not just when the pole is far from upright, but also when it's moving quickly through the upright position. This addresses a critical weakness in systems with high inertia like this one, where rapid swings can cause premature integral buildup. The tanh(8.0 * (1.0 - abs(dtheta))) term smoothly deactivates integral action when angular velocity exceeds ~1.0 rad/s, preventing overshoot-inducing windup while preserving steady-state accuracy.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (|theta| < 0.1 rad)
+        gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        self.integral_x += x * DT * gate
+        # Leaky integration to prevent windup
+        self.integral_x *= 0.95
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= self.K_i * self.integral_x * gate
+=======
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (|theta| < 0.1 rad) AND moving slowly
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))  # Suppress integral when |dtheta| > 1.0
+        gate = angle_gate * velocity_gate
+        self.integral_x += x * DT * gate
+        # Enhanced leaky integration with angle-dependent decay
+        self.integral_x *= (0.90 + 0.1 * np.exp(-10 * abs(theta)))  # Stronger decay when far from upright
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= self.K_i * self.integral_x * gate
+>>>>>>> REPLACE
+
+</DIFF>

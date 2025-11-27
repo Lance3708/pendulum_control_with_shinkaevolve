@@ -1,0 +1,243 @@
+<NAME>
+emergency_phase_controller
+</NAME>
+
+<DESCRIPTION>
+The current LQR-based approach is mathematically sophisticated but may be too rigid for this highly nonlinear, high-friction system. I'm proposing a paradigm shift to a phase-based controller that uses completely different strategies for different situations, inspired by how humans balance objects.
+
+The key insight is that the system behaves fundamentally differently in emergency vs stabilization phases. When the rod is falling fast, we need aggressive, decisive action. When it's nearly balanced, we need gentle precision. The current controller tries to blend these behaviors, but sharp transitions might work better.
+
+My approach:
+1. EMERGENCY MODE (falling fast): Push hard toward where the rod is falling, scaled by urgency
+2. GUIDANCE MODE (moderate angles): Use predictive compensation to anticipate where we need to be
+3. PRECISION MODE (nearly balanced): Gentle correction with integral action
+
+This eliminates complex matrix operations and uses simple, interpretable rules that a human could execute.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class Controller:
+    """
+    Adaptive Cross-Coupled LQR with Mid-Swing Damping and Predictive Compensation
+
+    Key innovations:
+    1. State-dependent cross-coupling in Q-matrix for better coordination
+    2. Mid-swing angular damping to suppress momentum overshoot
+    3. Predictive momentum compensation for earlier counteraction
+    4. Refined integral control with dual gating
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.Mtot = self.M + self.m
+        self.denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
+        self.b_c = FRICTION_CART
+        self.b_j = FRICTION_JOINT
+
+        # Build base A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+        A[3, 1] = self.g / self.denom0
+        A[3, 2] = self.b_c / (self.Mtot * self.denom0)
+        A[3, 3] = -self.b_j / (self.m * self.l * self.denom0)
+        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
+        A[2, 2] = -self.b_c / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
+        A[2, 3] = self.b_j / (self.Mtot * self.denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * self.denom0)
+        B[3, 0] = -1.0 / (self.Mtot * self.denom0)
+
+        # Base Q with proven optimal diagonal weights
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        # Add cross-coupling terms for theta-dtheta coordination
+        Q[1, 3] = 0.8
+        Q[3, 1] = 0.8
+        R = np.array([[1.0]])
+
+        self.A = A
+        self.B = B
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+=======
+class Controller:
+    """
+    Emergency-Phase Controller: Different strategies for different situations
+
+    Philosophy: When the rod is falling fast, push HARD toward where it's falling.
+    When it's nearly balanced, use gentle correction. Be decisive, not timid.
+    """
+
+    def __init__(self):
+        # Control parameters for different phases
+        self.emergency_angle_threshold = 0.4  # rad (~23 degrees)
+        self.precision_angle_threshold = 0.1   # rad (~6 degrees)
+
+        # Emergency mode: push toward falling direction
+        self.emergency_gain = 80.0
+
+        # Guidance mode: predictive compensation
+        self.guidance_gain = 45.0
+
+        # Precision mode: gentle correction
+        self.precision_pos_gain = 25.0
+        self.precision_angle_gain = 35.0
+        self.precision_vel_gain = 8.0
+        self.precision_angvel_gain = 12.0
+
+        # Integral control for precision mode
+        self.integral_x = 0.0
+        self.integral_gain = 0.4
+
+        # System parameters for prediction
+        self.g = G
+        self.l = L_COM
+
+    def get_action(self, state):
+        """Phase-based control: emergency, guidance, or precision mode"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Calculate urgency (how critical the situation is)
+        angle_magnitude = abs(theta)
+        angular_speed = abs(dtheta)
+        urgency = angle_magnitude + 0.3 * angular_speed
+
+        # PHASE 1: EMERGENCY MODE - rod is falling fast
+        if urgency > 0.5 or angle_magnitude > self.emergency_angle_threshold:
+            # Push HARD toward where the rod is falling
+            # If theta positive (falling right), push right (positive force)
+            emergency_force = self.emergency_gain * np.sign(theta) * min(urgency, 1.5)
+
+            # Also counteract cart drift during emergency
+            cart_correction = -12.0 * x - 4.0 * dx
+
+            force = emergency_force + cart_correction
+
+        # PHASE 2: GUIDANCE MODE - moderate angles, bring toward vertical
+        elif angle_magnitude > self.precision_angle_threshold:
+            # Predictive compensation: where will the rod be in 0.1 seconds?
+            # Simple gravity-dominated prediction
+            theta_pred = theta + dtheta * 0.1 + 0.5 * (self.g/self.l) * np.sin(theta) * (0.1**2)
+
+            # Push to counteract predicted fall
+            guidance_force = self.guidance_gain * theta_pred
+
+            # Cart positioning
+            cart_force = -15.0 * x - 6.0 * dx
+
+            # Angular velocity damping
+            angvel_damp = -8.0 * dtheta
+
+            force = guidance_force + cart_force + angvel_damp
+
+        # PHASE 3: PRECISION MODE - nearly balanced, gentle correction
+        else:
+            # Gentle PD control with integral action
+            pos_force = -self.precision_pos_gain * x
+            angle_force = -self.precision_angle_gain * theta
+            vel_force = -self.precision_vel_gain * dx
+            angvel_force = -self.precision_angvel_gain * dtheta
+
+            # Integral control for cart position (only when nearly balanced)
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -2.0, 2.0)
+            integral_force = -self.integral_gain * self.integral_x
+
+            force = pos_force + angle_force + vel_force + angvel_force + integral_force
+
+        return float(force)
+>>>>>>> REPLACE
+</DIFF>

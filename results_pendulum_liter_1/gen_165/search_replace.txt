@@ -1,0 +1,38 @@
+<NAME>
+predictive_momentum_compensation
+</NAME>
+
+<DESCRIPTION>
+Introduce predictive momentum compensation using short-horizon state extrapolation to anticipate angular momentum buildup before it destabilizes the system. The current energy-aware swing-up assist uses a 100ms prediction horizon but only for position forecasting. This enhancement adds a feedforward-like correction based on predicted angular momentum, calculated from estimated future theta and current dtheta.
+
+The innovation computes a predicted angular acceleration using current state and friction models, then forecasts theta_future using constant-acceleration approximation. The product of theta_future and dtheta gives a forward-looking momentum estimate that captures not just current falling severity but anticipated worsening of instability. This allows earlier, more accurate corrective action.
+
+This builds upon the existing predictive framework in the controller while addressing a key insight: when controlling an extremely long pendulum (2.5m), delays in response are catastrophic. Proactively counteracting predicted momentum, rather than reacting to current state, provides crucial time advantage. The normalization by omega_n*L_COM maintains physical consistency across different configurations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Use predicted angular momentum for more proactive control
+            predicted_momentum = (theta_future * dtheta)
+            norm_momentum = predicted_momentum / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            # Additive assist force with energy scaling
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity * energy_scale
+            force += u_swing
+=======
+            # Use predicted angular momentum for more proactive control
+            predicted_momentum = (theta_future * dtheta)
+            norm_momentum = predicted_momentum / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            # Predictive momentum compensation term - anticipates need for stronger correction
+            # Based on rate of change of predicted momentum
+            d_momentum_pred = (theta_future * theta_acc_pred + dtheta**2)
+            momentum_rate_correction = np.tanh(0.5 * d_momentum_pred / (self.omega_n * L_COM))
+
+            # Enhanced additive assist with predictive compensation
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity * energy_scale * (1.0 + 0.2 * momentum_rate_correction)
+            force += u_swing
+>>>>>>> REPLACE
+</DIFF>

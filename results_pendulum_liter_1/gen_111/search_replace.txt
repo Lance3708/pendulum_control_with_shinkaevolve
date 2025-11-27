@@ -1,0 +1,86 @@
+<NAME>increase_dtheta_weight</NAME>
+<DESCRIPTION>Slightly increase the angular velocity weight in the Q-matrix from 3.2 to 3.28 to better damp post-stabilization oscillations, reducing stable_x_error closer to zero and improving base_score precision without impacting energy efficiency.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: refined angular velocity damping for better transient response
+        # Q[1]=44.0 for improved angle correction, Q[3]=3.2 for optimal oscillation damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+=======
+        # Optimized LQR weights: refined angular velocity damping for better transient response
+        # Q[1]=44.0 for improved angle correction, Q[3]=3.28 for optimal oscillation damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>robust_arctan2_normalization</NAME>
+<DESCRIPTION>Replace modulo-based angle normalization with np.arctan2(np.sin(theta), np.cos(theta)) to ensure robust and physically consistent angular magnitude estimation, especially during potential rapid transients from the 0.9 rad initial condition.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+=======
+        # Robust angle normalization using arctan2
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>discrete_lqr_zoh</NAME>
+<DESCRIPTION>Switch to discrete-time LQR using ZOH discretization to align with the simulator's Euler (discrete) dynamics, reducing phase lag and accelerating early swing-up response to achieve stabilization below 192 steps and boost time_bonus.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def solve_lqr(self, A, B, Q, R):
+        """求解连续时间LQR问题"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def solve_lqr(self, A, B, Q, R):
+        """Solve discrete-time LQR with ZOH discretization matching simulator timestep"""
+        from scipy.linalg import solve_discrete_are
+        from scipy.signal import cont2discrete
+        Ad, Bd, _, _ = cont2discrete((A, B, np.eye(4), 0), DT, method='zoh')
+        P = solve_discrete_are(Ad, Bd, Q, R)
+        K = np.linalg.solve(R + Bd.T @ P @ Bd, Bd.T @ P @ Ad)
+        return K
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>soft_integral_x_action</NAME>
+<DESCRIPTION>Introduce soft-switched integral action on cart position, gated by tanh scheduling on upright proximity (|theta| < 0.1 rad), to eliminate steady-state stable_x_error=0.03m without interfering with transients, securing perfect terminal positioning and maximizing base/success bonuses.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        self.integral_x = 0.0
+        self.Ki = 1.8
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Soft-switched integral action on cart position (only when nearly upright)
+        gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        force += self.Ki * gate * self.integral_x
+
+        # Anti-windup integral update
+        self.integral_x = np.clip(self.integral_x + x * DT, -20.0, 20.0)
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

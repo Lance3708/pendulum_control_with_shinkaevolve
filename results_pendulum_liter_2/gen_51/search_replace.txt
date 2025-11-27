@@ -1,0 +1,180 @@
+To improve the performance, I will correct two critical logic errors introduced in the previous iteration and refine the control strategy for the heavy pole.
+
+**Key Changes:**
+
+1.  **Correct Integral Control Sign:** The previous code performed `force = force + integral_force`. Since `integral_force` is proportional to `x` error, adding it creates positive feedback (pushing the cart *further* away). I will change this to subtraction to correctly provide a restoring force.
+2.  **Fix Damping Logic:** The previous iteration applied damping when the pole was moving *away* from vertical (`theta * dtheta > 0`) with a negative force, which physically accelerates the fall. I will revert to the physically sound strategy: apply damping when the pole is *returning* to vertical (`theta * dtheta < 0`) to dissipate excess kinetic energy and prevent overshoot.
+3.  **Enhance Predictive Compensation:** I will flip the sign of the predictive correction. If the system predicts divergence (`theta` and `dtheta_pred` same sign), we need *more* restoring force (assisting the LQR), not less.
+4.  **Exponential Gain Scheduling:** I will implement the recommended exponential decay for the integral gain to minimize `stable_x_error` without causing oscillations.
+
+<NAME>
+fix_integral_and_damping
+</NAME>
+
+<DESCRIPTION>
+1. **Critical Fix**: Inverted the sign of the integral term. The previous version added `integral_force` to `force`, creating positive feedback for position error. Changed to subtraction to correctly oppose accumulated error.
+2. **Critical Fix**: Restored mid-swing damping logic to act when the pole is *returning* to vertical (`theta * dtheta < 0`). The previous version damped when moving *away* with the wrong sign, destabilizing the system. The new logic applies a corrective force proportional to angular velocity (`force += K * dtheta`) only when recovering, effectively removing kinetic energy to prevent overshoot.
+3. **Enhancement**: Refined the predictive momentum compensation. Switched the sign of the predictive correction to `+` based on physical analysis: if the pole is predicted to diverge (`divergence > 0`), we need *more* corrective force to counteract it.
+4. **Refinement**: Adjusted the adaptive integral gain scheduling to decay exponentially near equilibrium for smoother holding.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Direction-aware mid-swing angular damping
+        # Only damp when pole is moving AWAY from vertical (theta * dtheta > 0)
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85 and theta * dtheta > 0:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Enhanced predictive momentum compensation with cart coupling
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Include cart acceleration in theta acceleration estimate
+        # Add pole reaction force term: (m * l * dtheta**2 * sin(theta)) / Mtot
+        estimated_x_acc = force[0] / self.Mtot - self.b_c * dx / self.Mtot + (self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_x_acc - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Adaptive integral control with state-dependent gain
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive integral gain: higher near equilibrium, lower during transients
+        K_i_adaptive = 0.85 * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.2, 0.85)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling
+        # Increase gain when far from equilibrium to ensure recovery
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Mid-swing angular damping
+        # STRATEGY: Dampen angular velocity ONLY when returning to vertical to prevent overshoot.
+        # Physics: To dampen negative dtheta (swinging left), we need positive Force (push right) -> negative torque.
+        # So Force should have same sign as dtheta.
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            # Check if returning: theta and dtheta have opposite signs
+            is_returning = 0.5 * (1.0 - np.tanh(5.0 * theta * dtheta))
+            if is_returning > 0.1:
+                K_d_midswing = 8.0 # Strong damping for heavy pole
+                midswing_damp = K_d_midswing * dtheta * mid_swing_activation * is_returning
+                force = force + midswing_damp
+
+        # Enhanced predictive momentum compensation
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Estimate acceleration using physics model (temp term matches x_acc approx)
+        # Using current proposed force
+        estimated_x_acc_term = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+
+        # Calculate expected angular acceleration
+        denom = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_x_acc_term - self.b_j * dtheta / (self.m * self.l)) / denom
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        # If theta * dtheta_pred > 0, system is diverging. We need MORE corrective force.
+        # LQR gives Force propto theta. We add to it.
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = 0.15 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 10.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Adaptive integral control
+        # Tight gating for precision hold
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive integral gain: exponential decay near 0 to avoid limit cycles
+        K_i_adaptive = 1.2 * np.exp(-3.0 * (abs(theta) + 0.5 * abs(dtheta)))
+
+        if integral_gate > 0.05:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -2.0, 2.0)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        # Correct sign: Subtract integral force to oppose position error
+        force = force - integral_force
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

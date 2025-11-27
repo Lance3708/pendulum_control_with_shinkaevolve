@@ -1,0 +1,79 @@
+<NAME>
+refined_midswing_damping_with_returning_mask
+</NAME>
+
+<DESCRIPTION>
+Looking at the performance metrics, the best performing program (score 4636.78) uses a specific mid-swing damping strategy with a "returning" mask that applies damping primarily when the pole is moving back toward vertical. The current program lacks this direction-aware damping.
+
+The key insight from the top performer is:
+1. It uses `is_returning = 0.5 * (1.0 - np.tanh(5.0 * theta * dtheta))` to detect when the pole is recovering
+2. It applies stronger damping (K_d_midswing = 6.0 vs 2.5) but only during recovery
+3. The sign of the damping force is positive (`force = force + midswing_damp`) with `midswing_damp = K_d_midswing * dtheta * mid_swing_activation * is_returning`
+
+This prevents damping from fighting the natural recovery motion while still suppressing overshoot when the pole swings back through vertical. The current program applies damping unconditionally which can slow down recovery.
+
+Additionally, the top performer uses a more accurate physics model for predictive compensation that includes the reaction force term from the actual dynamics. I'll incorporate both improvements to better match the winning strategy.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+=======
+        # Mid-swing angular damping (0.25-0.85 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        # Key: Only apply damping when returning to vertical (theta and dtheta have opposite signs)
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 6.0  # Stronger damping, but direction-gated
+            # Apply damping primarily when returning to vertical (theta * dtheta < 0)
+            # Use a soft mask to avoid discontinuities
+            is_returning = 0.5 * (1.0 - np.tanh(5.0 * theta * dtheta))
+            midswing_damp = K_d_midswing * dtheta * mid_swing_activation * is_returning
+            force = force + midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+=======
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Full physics model for theta acceleration estimate, using current force
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        # Estimate the 'temp' term from the simulation dynamics, using the force calculated so far
+        temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        # This is a much more accurate predictor of the next angular acceleration
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        integral_force = self.K_i * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+>>>>>>> REPLACE
+</DIFF>

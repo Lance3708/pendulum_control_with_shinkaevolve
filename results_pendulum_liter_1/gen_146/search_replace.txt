@@ -1,0 +1,105 @@
+<NAME>sharpen_gain_transitions</NAME>
+<DESCRIPTION>
+Sharpen the tanh slopes in gain scheduling from 5.0/4.0 to 7.0/6.0 for crisper separation between aggressive corrections (large |theta|, |dtheta|) and gentle balancing near equilibrium. This allows faster transition to low-gain mode, reducing overshoot and accelerating stabilization time below 192 steps while preserving energy efficiency.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized gain scheduling: more aggressive for large errors
+        # Position-based gain: sharp response beyond 0.6 rad
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+
+        # Velocity-based gain: strong damping for high angular velocity
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+=======
+        # Optimized gain scheduling: more aggressive for large errors
+        # Position-based gain: sharp response beyond 0.6 rad
+        pos_gain = 1.0 + 0.5 * np.tanh(7.0 * max(0.0, abs(theta) - 0.6))
+
+        # Velocity-based gain: strong damping for high angular velocity
+        vel_gain = 1.0 + 0.3 * np.tanh(6.0 * max(0.0, abs(dtheta) - 1.0))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_cross_coupling_q</NAME>
+<DESCRIPTION>
+Introduce off-diagonal cross-coupling terms in the LQR Q-matrix to penalize correlated state deviations (x-dx, theta-dtheta), promoting physically coherent corrections that minimize cart overshoot and angular oscillations. This leverages the exact linearization to achieve smoother trajectories, faster settling, and potential time_bonus gains without increasing energy.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: proven configuration from best performer (4920.14)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])  # Restored best-performing weights
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: proven configuration from best performer (4920.14)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])  # Restored best-performing weights
+        Q[0,2] = Q[2,0] = 0.12
+        Q[1,3] = Q[3,1] = 0.8
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_arctan2_norm</NAME>
+<DESCRIPTION>
+Replace modulo-based angle normalization with arctan2(sin, cos) for more robust handling of angle wrapping, preventing numerical drift over multiple steps and ensuring consistent state feedback near theta ~ ±pi boundaries during aggressive swings.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+=======
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_integral_and_energy_swingup</NAME>
+<DESCRIPTION>
+Add dual enhancements: (1) soft-switched leaky integral control for x-position with angle-velocity gating (rec1) and angle-proportional decay (rec3) to suppress windup and achieve sub-0.03 stable_x_error; (2) physics-informed swing-up assist (rec2) scaled by mechanical energy deficit relative to horizontal position energy, multiplied onto momentum-aware severity for precise, efficient initial stabilization boosts. These target precision/success_bonus uplift and faster time-to-stabilization via coordinated phase-aware control.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+        force = base_force * adaptive_gain
+
+        # Enhanced soft-switched integral for cart centering
+        gate = np.tanh(12.0 * (0.1 - abs(theta))) * np.tanh(8.0 * (1.0 - abs(dtheta)))
+        self.integral_x += x * DT * gate
+        self.integral_x *= (0.85 + 0.15 * np.exp(-8.0 * max(0.0, abs(theta) - 0.1)))
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= 0.05 * self.integral_x * gate
+
+        # Energy-deficit scaled swing-up assist for efficient large-angle recovery
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            E_current = 0.5 * M_POLE * (dtheta * L_COM)**2 + M_POLE * G * L_COM * (1 - np.cos(theta))
+            energy_deficit = max(0.0, 1.0 - E_current / (M_POLE * G * L_COM))
+            omega_n = np.sqrt(G / L_COM)
+            norm_momentum = (theta * dtheta) / (omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity * energy_deficit
+            force += u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_integral_init</NAME>
+<DESCRIPTION>
+Initialize integral state and gain in Controller.__init__ to support the added integral control term.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.05
+>>>>>>> REPLACE
+</DIFF>

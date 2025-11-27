@@ -1,0 +1,170 @@
+<NAME>
+dynamic_objective_priority
+</NAME>
+
+<DESCRIPTION>
+Introduces a Dynamic Objective Prioritization mechanism that selectively suppresses the cart position control stiffness when the pole angle is large. This decouples the "catch" requirement from the "center" requirement, allowing the cart to move more freely to stabilize the pole during emergency phases.
+
+Additionally:
+- Enhances integral control with higher gains (1.2) and limits (+/- 2.5) to eliminate the 0.11m steady-state error.
+- Adds a "Micro-motion Quenching" damper for the final precision hold phase.
+- Tunes swing-up assist and damping parameters for the heavy rod context.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        x, theta, dx, dtheta = state
+
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        base_force = -self.K @ state_vec
+
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Direction-aware mid-swing angular damping (only when moving away from vertical)
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+        if abs(theta) > 0.25 and abs(theta) < 0.85 and theta * dtheta > 0:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Enhanced predictive compensation with full physics model
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Full physics: include centrifugal term for accurate prediction
+        estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_temp - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        # Returning mask: reduce correction when pole is naturally coming back
+        returning_mask = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))
+        predictive_correction = -0.14 * pred_divergence * np.tanh(3.0 * abs(theta)) * returning_mask
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Adaptive cart damping to suppress non-essential movement
+        adaptive_dx_damping = -0.5 * dx * np.tanh(5.0 * abs(theta))
+        force = force + adaptive_dx_damping
+
+        # Adaptive integral control with state-dependent gain
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        K_i_adaptive = self.K_i * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.2, self.K_i)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        x, theta, dx, dtheta = state
+
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # 1. Dynamic Objective Prioritization
+        # Decompose LQR to selectively suppress position control during instability
+        lqr_force = -self.K @ state_vec
+
+        # Calculate suppression factor for position control (x)
+        # When theta is large, reduce position stiffness to 15% to allow "catch" movement
+        k_x = self.K[0, 0]
+        f_x_contribution = -k_x * x
+
+        stability_metric = np.exp(-5.0 * theta**2)
+        position_stiffness = 0.15 + 0.85 * stability_metric
+
+        force_adjustment = -f_x_contribution * (1.0 - position_stiffness)
+        base_force = lqr_force + force_adjustment
+
+        # 2. Adaptive Gain Scheduling
+        pos_gain = 1.0 + 0.4 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # 3. Direction-Aware Mid-Swing Damping
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+        if abs(theta) > 0.25 and abs(theta) < 0.85 and theta * dtheta > 0:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # 4. Enhanced Predictive Compensation
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_temp - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        returning_mask = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))
+        predictive_correction = -0.14 * pred_divergence * np.tanh(3.0 * abs(theta)) * returning_mask
+        force = force + predictive_correction
+
+        # 5. Swing-up Assist
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 9.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # 6. Adaptive Cart Damping
+        adaptive_dx_damping = -0.6 * dx * np.tanh(5.0 * abs(theta))
+        force = force + adaptive_dx_damping
+
+        # 7. Enhanced Integral Control
+        angle_gate = np.tanh(10.0 * (0.15 - abs(theta)))
+        velocity_gate = np.tanh(5.0 * (1.5 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        K_i_adaptive = 1.2 * np.exp(-3.0 * (abs(theta) + 0.2 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.3, 1.2)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -2.5, 2.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force + integral_force
+
+        # 8. Micro-motion Quenching
+        if abs(theta) < 0.05 and abs(x) < 0.1:
+            force -= 2.0 * dx
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

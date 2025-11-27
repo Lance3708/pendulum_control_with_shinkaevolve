@@ -1,0 +1,52 @@
+<NAME>gainscheduled_lqr</NAME>
+<DESCRIPTION>
+Implement gain scheduling in the LQR controller by computing two gain matrices: a conservative low-gain K_low (matching the existing suboptimal weights for robustness at large angles) and an aggressive high-gain K_high (Q_high with 5x higher x weight, 10x theta, 4x dx/dtheta; R_high 1/3 of original for stronger authority). In get_action, compute a sigmoid blend factor that smoothly transitions to full high-gain usage as |theta_wrapped| falls below 0.7 rad (blend=0.5 at exactly 0.7 rad, sharp k=15 for smooth but decisive ramp). This directly addresses the slow stabilization (time_bonus=556 low) and mediocre precision (base_score=341 low) by accelerating convergence and tightening control in the near-vertical phase, where Gen0 is overly cautious, while retaining proven stability for initial ~51° angle. Energy remains efficient as aggressive gains only activate late, after major corrections. Expected: stabilization_time &lt;300 steps, base_score &gt;600, combined &gt;4500.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # LQR权重矩阵（更保守的次优设置，留出充分进化空间）
+        # Q: 显著降低权重，高度容忍误差 - 导致基础分数低
+        # R: 大幅增加权重，极度限制出力 - 导致响应慢，能耗高
+        Q = np.diag([2.0, 8.0, 0.05, 0.4])    # [x, theta, dx, dtheta] (更保守)
+        R = np.array([[3.0]])                  # 控制力惩罚极大 (非常不愿意用大力)
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # Conservative low-gain and aggressive high-gain LQR weights for gain scheduling
+        # Low-gain for large angles (robust), high-gain for small angles (fast/precise)
+        Q_low = np.diag([2.0, 8.0, 0.05, 0.4])
+        R_low = np.array([[3.0]])
+        Q_high = np.diag([10.0, 80.0, 0.2, 1.5])
+        R_high = np.array([[1.0]])
+
+        # Solve for gains
+        self.K_low = self.solve_lqr(A, B, Q_low, R_low)
+        self.K_high = self.solve_lqr(A, B, Q_high, R_high)
+        self.thresh = 0.7
+        self.k_gain = 15.0
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Gain-scheduled LQR: u = -K(|theta|) * x"""
+        x, theta, dx, dtheta = state
+        theta_wrapped = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        abs_theta = np.abs(theta_wrapped)
+        z = self.k_gain * (self.thresh - abs_theta)
+        blend = 1.0 / (1.0 + np.exp(-z))
+        K = self.K_low + blend * (self.K_high - self.K_low)
+        state_vec = np.array([x, theta_wrapped, dx, dtheta])
+        force = -K @ state_vec
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,92 @@
+Looking at the performance data, I notice the current program achieves excellent energy efficiency (2492.85 bonus) but has room for improvement in stabilization time (192 steps). The key insight is that we can trade a small amount of energy efficiency for faster stabilization by making the controller more aggressive during critical recovery phases.
+
+Here's a targeted improvement that enhances the swing-up assist to be more energy-aware and situationally aggressive:
+
+<NAME>
+energy_aware_swing_up_assist
+</NAME>
+
+<DESCRIPTION>
+The current swing-up assist provides consistent help when |theta| > 0.8, but doesn't adapt to the energy state of the system. This enhancement computes the pole's mechanical energy and scales the assist force based on the energy deficit from the upright position. When the pole has insufficient energy to reach upright, we provide stronger assistance. When it has excess energy, we reduce assistance to avoid overshoot. This allows more aggressive recovery when needed while maintaining efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced swing-up assist for large angles (>0.8 rad)
+        if abs(theta) > 0.8:
+            # Smooth activation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+
+            # Normalized falling severity using angular momentum
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force += u_swing
+=======
+        # Energy-aware swing-up assist for large angles (>0.8 rad)
+        if abs(theta) > 0.8:
+            # Smooth activation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+
+            # Normalized falling severity using angular momentum
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            # Energy-aware scaling: compute current mechanical energy
+            # E = 0.5*I*dtheta^2 + m*g*l*(1-cos(theta)) where I = m*l^2 for point mass
+            E_current = 0.5 * M_POLE * (dtheta * L_COM)**2 + M_POLE * G * L_COM * (1 - np.cos(theta))
+            # Target energy for upright position (stable equilibrium)
+            E_target = 2.0 * M_POLE * G * L_COM  # Conservative target to ensure overshoot prevention
+            # Energy scaling factor: 1.0 when energy deficit, <1.0 when excess energy
+            energy_scale = max(0.0, 1.0 - E_current / E_target)
+
+            u_swing = 10.0 * swing_activation * np.sign(theta) * falling_severity * energy_scale
+            force += u_swing
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+sharper_gain_transitions
+</NAME>
+
+<DESCRIPTION>
+The current gain scheduling uses relatively gentle transitions (tanh coefficients 5.0/4.0). By increasing these coefficients to 7.0/6.0, we create sharper transitions between aggressive correction during large deviations and gentle control near equilibrium. This allows faster deactivation of aggressive gains once the system approaches stability, potentially reducing stabilization time by 2-3 steps without compromising energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Smooth gain scheduling using tanh activation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+=======
+        # Sharper gain scheduling for faster mode transitions
+        pos_gain = 1.0 + 0.5 * np.tanh(7.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(6.0 * max(0.0, abs(dtheta) - 1.0))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+cross_coupled_state_penalties
+</NAME>
+
+<DESCRIPTION>
+The current LQR uses a diagonal Q matrix, but the cart-pole system has strong dynamic coupling between position/angle and their velocities. Adding symmetric off-diagonal terms to the Q matrix explicitly penalizes coupled deviations, encouraging smoother, physically coherent corrections. This should reduce residual oscillations and improve the stable_x_error metric.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Proven optimal LQR weights
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        R = np.array([[1.0]])
+=======
+        # Enhanced LQR weights with cross-coupled state penalties
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        # Add symmetric off-diagonal terms for coordinated dynamics
+        Q[0, 2] = Q[2, 0] = 0.12  # Couple position and velocity
+        Q[1, 3] = Q[3, 1] = 0.8   # Couple angle and angular velocity
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+These three changes work together to create a more responsive controller: the energy-aware swing-up provides targeted assistance when most needed, sharper gain transitions enable faster mode switching, and cross-coupled penalties promote coordinated motion. This should reduce stabilization time while maintaining the excellent energy efficiency that characterizes the current design.

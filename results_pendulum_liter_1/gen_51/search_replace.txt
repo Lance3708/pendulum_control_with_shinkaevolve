@@ -1,0 +1,68 @@
+<NAME>
+discrete_lqr_zoh</NAME>
+
+<DESCRIPTION>
+Switch to discrete-time LQR via ZOH cont2discrete at exact DT=0.02 to eliminate continuous-discrete mismatch in this fixed-step Euler simulator. Discrete gains optimize for actual sampled-data dynamics, accelerating transient response and stabilization (target: 180-190 steps, +100-200 time_bonus) without energy penalty. Expert practice for unstable digital control; prior continuous showed good but improvable perf (196 steps).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def solve_lqr(self, A, B, Q, R):
+        """求解连续时间LQR问题"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def solve_lqr(self, A, B, Q, R):
+        """Solve discrete-time LQR with ZOH matching simulator DT"""
+        from scipy.signal import cont2discrete
+        from scipy.linalg import solve_discrete_are
+        Ad, Bd, _, _ = cont2discrete((A, B, np.eye(4), np.zeros((4,1))), DT, method='zoh')
+        P = solve_discrete_are(Ad, Bd, Q, R)
+        K = np.linalg.solve(R + Bd.T @ P @ Bd, Bd.T @ P @ Ad)
+        return K
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+sigmoid_blending</NAME>
+
+<DESCRIPTION>
+Upgrade theta_weight to sigmoid selector for sharper, differentiable mode-switching between position-dominant (|theta| > 0.3|dtheta|) and velocity-dominant regimes. Replaces soft-ratio with steep sigmoid (gain=8), reducing oscillation during transitions as seen in prior gens, smoothing damping for higher base_score and faster settling.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Weighted blend based on dominant error mode
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.3 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+=======
+        # Weighted blend based on dominant error mode (sigmoid selector)
+        theta_weight = 1.0 / (1.0 + np.exp(-8.0 * (abs(theta) - 0.3 * abs(dtheta))))
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+swingup_assist</NAME>
+
+<DESCRIPTION>
+Inject smooth energy-shaped swing-up term active only for |theta| > 0.85 rad (initial 0.9 rad phase), using tanh-gate * cos(theta)*dtheta for precise momentum without upright interference or abruptness. Tailored for heavy/long pole's slow initial fall, shaves initial recovery steps (~10-15), boosting time_bonus.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        force = base_force * adaptive_gain
+        return float(force[0])
+=======
+        force = base_force * adaptive_gain
+
+        # Smooth swing-up assist gated by large angle
+        u_swing = 8.0 * np.tanh(10.0 * (abs(theta) - 0.85)) * np.cos(theta) * dtheta
+        force += u_swing
+
+        force = np.clip(force, -100.0, 100.0)
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

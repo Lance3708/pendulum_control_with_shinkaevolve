@@ -1,0 +1,83 @@
+<NAME>
+continuous_falling_factor_swing_assist
+</NAME>
+
+<DESCRIPTION>
+Looking at the best-performing programs (score 4920.15), they all use Q = [4.5, 44.0, 0.6, 3.2] and include an additive swing-up assist for large angles. The current program uses Q = [4.0, 38.0, 0.5, 3.25] which is suboptimal, and lacks the swing-up assist.
+
+The key insight from recommendation #1 is to enhance the swing-up assist with a continuous falling-severity factor using `np.tanh(3.0 * theta * dtheta)` instead of a binary check. This provides smoother, physics-informed assistance that scales based on how rapidly the pole is diverging from upright.
+
+Changes:
+1. Update Q matrix to proven optimal [4.5, 44.0, 0.6, 3.2]
+2. Add the additive swing-up assist with continuous falling factor modulation
+3. Add numerical safety to angle normalization (1e-8 epsilon)
+
+This combines the best elements from the top performers while adding the novel continuous falling factor for potentially better performance during the critical early swing-up phase from 0.9 rad.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: refined angular velocity damping for better transient response
+        # Q[1]=38.0 for angle correction, Q[3]=3.25 for optimal oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.25])
+=======
+        # Optimized LQR weights: proven optimal from best performer (4920.15)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with continuous falling-factor swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist for large angles (>0.8 rad)
+        # Uses continuous falling-severity factor instead of binary check
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Continuous falling factor: smoothly scales based on divergence rate
+            # When theta*dtheta > 0, pole is falling further from equilibrium
+            falling_factor = 1.0 + 0.5 * np.tanh(3.0 * theta * dtheta / (abs(theta) + 0.1))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

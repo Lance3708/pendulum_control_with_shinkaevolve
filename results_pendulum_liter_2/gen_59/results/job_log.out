@@ -1,0 +1,14 @@
+Evaluating program: results_pendulum_liter/gen_59/main.py
+Saving results to: results_pendulum_liter/gen_59/results
+Evaluation error: name 'Controller' is not defined
+Correctness and error status saved to results_pendulum_liter/gen_59/results/correct.json
+Metrics saved to results_pendulum_liter/gen_59/results/metrics.json
+Evaluation or Validation failed: name 'Controller' is not defined
+Metrics:
+  combined_score: 0.0
+  execution_time_mean: 0.0
+  execution_time_std: 0.0
+  num_successful_runs: 0
+  num_valid_runs: 0
+  num_invalid_runs: 0
+  all_validation_errors: []

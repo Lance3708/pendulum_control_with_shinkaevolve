@@ -1,0 +1,49 @@
+<NAME>
+enhanced_predictive_compensation_with_returning_mask
+</NAME>
+
+<DESCRIPTION>
+The key improvement is to enhance the predictive compensation mechanism by making it aware of whether the pole is "returning" towards upright. This is done by checking the sign of `theta * dtheta`. When the pole is returning (`theta * dtheta < 0`), we should apply less aggressive predictive correction since the system is naturally stabilizing itself. Additionally, we introduce a sharper tanh-based activation for the predictive term to make it more decisive in its action. This should help reduce unnecessary energy expenditure during the later stages of stabilization while maintaining strong corrective action when truly needed.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced predictive momentum compensation with full physics model
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # More accurate physics: estimate the 'temp' term from simulation EoM
+        # This includes the non-linear centrifugal component for better prediction
+        estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_temp - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence, with slightly increased gain
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.14 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Enhanced predictive momentum compensation with full physics model
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # More accurate physics: estimate the 'temp' term from simulation EoM
+        # This includes the non-linear centrifugal component for better prediction
+        estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_temp - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence, with slightly increased gain
+        # and a "returning" mask to reduce correction when pole is naturally coming back
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        # The returning mask is 1.0 when moving away from upright, 0.0 when returning
+        returning_mask = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))
+        predictive_correction = -0.14 * pred_divergence * np.tanh(3.0 * abs(theta)) * returning_mask
+        force = force + predictive_correction
+>>>>>>> REPLACE
+
+</DIFF>

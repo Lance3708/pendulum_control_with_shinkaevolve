@@ -1,0 +1,36 @@
+<NAME>tune_lqr_weights_angular_priority</NAME>
+<DESCRIPTION>Increase theta weight to 40.0 and reduce x weight to 4.0 in Q matrix (keeping velocities same) to prioritize rapid angular stabilization for the extremely long/heavy pole with high friction. This leverages the friction-aware model to accelerate convergence (lower stabilization_time for higher time_bonus) while improving precision (higher base_score) on the challenging initial 0.9 rad condition, without significantly increasing energy use given the conservative R=1.0 and current low total_energy~11.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: higher precision/speed, moderate effort
+        Q = np.diag([5.0, 30.0, 0.5, 2.0])
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: higher angular priority for faster stabilization
+        Q = np.diag([4.0, 40.0, 0.5, 2.0])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+<NAME>add_smooth_gain_scheduling</NAME>
+<DESCRIPTION>Add smooth, angle-dependent gain modulation gain=1.0 + 0.5*max(0, |theta|-0.6) multiplied to the LQR force output. This continuously boosts effort for large deviations (|theta|>0.6 rad ~34°), addressing LQR's small-signal assumption during the critical initial phase (0.9 rad) of this highly unstable setup. Proven in prior generations to speed stabilization without discontinuities, aiding time_bonus while preserving steady-state efficiency and success_bonus.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x with smooth gain scheduling"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        gain = 1.0 + 0.5 * max(0.0, abs(theta) - 0.6)
+        force = force * gain
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

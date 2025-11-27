@@ -1,0 +1,24 @@
+<NAME>
+dynamic_integral_decay_with_angle_velocity
+</NAME>
+
+<DESCRIPTION>
+The current controller uses a dynamic decay rate for the integral term that depends only on the pole angle. However, when the pole is at a large angle but moving slowly (e.g., near its peak swing), aggressive decay may be unnecessary and could slow down convergence. Conversely, when the pole is at a moderate angle but rotating rapidly, more aggressive decay would better prevent integral windup.
+
+This improvement enhances the decay mechanism by incorporating both angle and angular velocity. The new decay rate increases not only with larger |theta| but also with higher |dtheta|, using a combined exponential term that captures both sources of potential instability. This creates a more intelligent anti-windup strategy that adapts to the actual kinetic severity of the system state, preventing destabilizing integral buildup during high-energy transients while preserving integrator effectiveness during slower movements.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+              # Dynamic decay: stronger when angle is large, gentler near equilibrium
+              decay_rate = 0.90 + 0.08 * np.exp(-10.0 * abs(theta))
+              self.integral_x *= decay_rate
+=======
+              # Enhanced dynamic decay: accounts for both angle magnitude and angular velocity
+              # High rotation speeds increase decay to prevent windup during energetic swings
+              decay_base = 0.90
+              decay_modulator = 0.08 * np.exp(-10.0 * abs(theta)) * np.exp(-2.0 * abs(dtheta))
+              decay_rate = decay_base + decay_modulator
+              self.integral_x *= decay_rate
+>>>>>>> REPLACE
+</DIFF>

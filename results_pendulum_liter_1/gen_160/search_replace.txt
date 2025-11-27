@@ -1,0 +1,65 @@
+<NAME>
+enhanced_swingup_with_momentum_prediction
+</NAME>
+
+<DESCRIPTION>
+The current swing-up assist uses the current angular momentum (theta*dtheta) to assess falling severity, but with a very long pole (2.5m), there's significant delay between cart movement and its effect on pole dynamics. This creates a "prediction gap" where the controller reacts to already-occurring motion.
+
+The proposed enhancement introduces predictive momentum assessment by estimating the pole's future state 0.1 seconds ahead using a simple forward integration of current dynamics. This prediction allows the controller to apply corrective forces earlier, particularly crucial during the initial large-angle recovery phase.
+
+The physics insight: For L=2.5m poles, the pendulum's response lag is substantial. By predicting theta_future ≈ theta + dtheta*dt + 0.5*theta_acc*dt², we can anticipate instability before it fully develops. The predicted angular momentum (theta_future * dtheta) provides a more proactive signal than current momentum alone.
+
+This change builds upon the existing energy-aware swing-up while adding temporal foresight, potentially reducing stabilization time by catching deviations earlier - directly improving the time bonus component of our score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Precompute natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Energy reference for swing-up scaling
+        self.E_ref = M_POLE * G * L_COM  # Potential energy at upright position
+
+        # Integral control parameters
+        self.integral_x = 0.0
+=======
+        # Precompute natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Energy reference for swing-up scaling
+        self.E_ref = M_POLE * G * L_COM  # Potential energy at upright position
+
+        # Prediction horizon for proactive control (100ms)
+        self.prediction_dt = 0.1
+
+        # Integral control parameters
+        self.integral_x = 0.0
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Normalized falling severity using angular momentum
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+=======
+            # Predictive falling severity using forecasted angular momentum
+            # Estimate future theta after prediction_dt assuming constant acceleration
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+
+            # Simplified acceleration estimate for prediction
+            temp = (0 + FRICTION_CART * dx + M_POLE * L_COM * dtheta**2 * sin_theta) / (M_CART + M_POLE)
+            theta_acc_pred = (G * sin_theta - cos_theta * temp + FRICTION_JOINT * dtheta / (M_POLE * L_COM)) / \
+                           (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / (M_CART + M_POLE)))
+
+            # Forward predict theta
+            dt_p = self.prediction_dt
+            theta_future = theta + dtheta * dt_p + 0.5 * theta_acc_pred * dt_p**2
+
+            # Use predicted angular momentum for more proactive control
+            predicted_momentum = (theta_future * dtheta)
+            norm_momentum = predicted_momentum / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+>>>>>>> REPLACE
+</DIFF>

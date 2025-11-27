@@ -1,0 +1,58 @@
+Looking at the performance metrics, the current best score is 4933.93 with stabilization_time=190. The key bottleneck appears to be the stabilization time - reducing it by even a few steps can significantly boost the time_bonus. The stable_x_error is 0.05, which suggests the integral action could be slightly more aggressive.
+
+Analyzing the top performers, I notice that:
+1. The best score (4933.93) uses integral action with soft-switching
+2. Stabilization time of 190 steps is close but could potentially be reduced
+3. The integral gate condition only considers angle, not angular velocity
+
+Based on recommendation #1, I'll implement a joint angle-velocity condition for the integral gate to prevent premature activation during fast-passing upright transients. Additionally, I'll slightly increase Q[3] as suggested in recommendation #2 to accelerate damping of oscillations.
+
+<NAME>
+joint_integral_gate_and_tuned_damping
+</NAME>
+
+<DESCRIPTION>
+This edit implements two synergistic improvements:
+
+1. **Joint angle-velocity integral gating**: The current integral gate only checks if |theta| < 0.1 rad, but this can activate prematurely when the pole is passing through upright with high angular velocity. By adding a velocity condition (requiring |dtheta| < 1.0), we prevent integral buildup during transient passes, reducing overshoot risk and enabling faster convergence.
+
+2. **Slightly increased angular velocity damping (Q[3]: 3.2 → 3.4)**: This penalizes residual oscillations more heavily, helping to damp out the final oscillations faster and potentially shaving 1-2 steps off stabilization time.
+
+The combination should reduce stabilization time while maintaining energy efficiency and precision.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Proven optimal LQR weights from best performer (4920.14 score)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+=======
+        # Enhanced LQR weights with increased angular velocity damping for faster settling
+        Q = np.diag([4.5, 44.0, 0.6, 3.4])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (<0.1 rad)
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive
+=======
+        # Soft-switched integral action for cart position with joint angle-velocity gating
+        # Only activates when pole is nearly upright AND moving slowly
+        # This prevents premature activation during fast transient passes through upright
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            # Dynamic decay: stronger when angle is large, gentler near equilibrium
+            decay_rate = 0.90 + 0.08 * np.exp(-10.0 * abs(theta))
+            self.integral_x *= decay_rate
+>>>>>>> REPLACE
+</DIFF>

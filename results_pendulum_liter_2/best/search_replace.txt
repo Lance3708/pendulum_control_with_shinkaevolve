@@ -1,0 +1,65 @@
+<NAME>
+enhanced_integral_windup_and_position_control
+</NAME>
+
+<DESCRIPTION>
+Based on the analysis of previous generations and the current performance, I'm implementing two key improvements:
+
+1. Enhanced Integral Windup Protection: The current asymmetric windup limits are good but can be further refined. I'm introducing direction-sensitive limits that preserve headroom for correction opposite to displacement, which should reduce final_x_error.
+
+2. Improved Position Correction: The position correction in balancing phase is enhanced with a more adaptive gain that responds better to both position and velocity errors, aiming to reduce stable_x_error.
+
+These changes address the main weaknesses seen in recent generations: final position accuracy and stable state precision, while maintaining the fast stabilization time already achieved.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Adaptive asymmetric windup limits for better centering
+                # Allow more accumulation in the direction that corrects current position error
+                base_limit = 1.2
+                expansion_factor = 0.6 * abs(x)  # Expand limits when far from center
+                lower_limit = -(base_limit + expansion_factor) - 0.3 * x  # More negative when x is negative
+                upper_limit = base_limit + expansion_factor - 0.3 * x     # More positive when x is positive
+                self.integral_x = np.clip(self.integral_x, lower_limit, upper_limit)
+            else:
+                self.integral_x *= 0.96
+
+=======
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Enhanced asymmetric windup limits with direction-sensitive bounds
+                # Preserve headroom for correction opposite to displacement
+                base_limit = 1.2
+                expansion_factor = 0.6 * abs(x)  # Expand limits when far from center
+                # Direction-sensitive limits: more permissive in corrective direction
+                lower_limit = -(base_limit + expansion_factor) + 0.3 * min(0, x)  # More negative when x > 0
+                upper_limit = base_limit + expansion_factor - 0.3 * max(0, x)     # More positive when x < 0
+                self.integral_x = np.clip(self.integral_x, lower_limit, upper_limit)
+            else:
+                self.integral_x *= 0.94  # Slightly faster decay for quicker response
+
+>>>>>>> REPLACE
+
+<DIFF>
+<<<<<<< SEARCH
+            if stability_factor > 0.15:  # Lower threshold for more active centering
+                # Adaptive position correction: stronger when far from center
+                position_gain = 1.5 + 0.8 * np.tanh(2.0 * abs(x))  # Ranges from 1.5 to 2.3
+                # Stronger position correction with velocity damping
+                position_correction = -position_gain * x * stability_factor - 0.8 * dx * stability_factor
+                force = force + position_correction
+
+=======
+            if stability_factor > 0.15:  # Lower threshold for more active centering
+                # Enhanced position correction with velocity-dependent gain
+                position_gain = 1.6 + 0.9 * np.tanh(2.5 * abs(x))  # Ranges from 1.6 to 2.5
+                velocity_gain = 0.85 + 0.35 * np.tanh(3.0 * abs(dx))  # Adaptive velocity damping
+                # Stronger position correction with state-aware velocity damping
+                position_correction = -position_gain * x * stability_factor - velocity_gain * dx * stability_factor
+                force = force + position_correction
+
+>>>>>>> REPLACE
+
+</DIFF>

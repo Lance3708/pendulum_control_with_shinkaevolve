@@ -1,0 +1,150 @@
+**Analysis:**
+The current controller achieves good performance but leaves room for improvement in stabilization time (191 steps vs best performer's 185). The key insight from the best performer is its use of phase-aware control with momentum cancellation and enhanced mid-swing damping. Let's implement these proven strategies while maintaining energy efficiency.
+
+**Changes:**
+
+1. Add momentum-aware integral control during stabilization
+2. Introduce Gaussian-shaped mid-swing damping for better transient response
+3. Enhance predictive momentum compensation with friction-aware dynamics
+
+<NAME>
+add_momentum_integral_and_midswing_damping
+</NAME>
+
+<DESCRIPTION>
+This edit introduces three key improvements:
+1. Momentum integral term that tracks angular velocity deficit during stabilization
+2. Gaussian-shaped mid-swing damping that activates at critical 0.5 rad angle
+3. Enhanced predictive momentum compensation using full friction-aware dynamics
+These changes address the 6-step gap in stabilization time vs the best performer while maintaining energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.8  # Integral gain for cart position
+
+        # Natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+=======
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.integral_momentum = 0.0  # Track angular momentum deficit
+        self.K_i = 0.8  # Integral gain for cart position
+        self.K_mom = 0.015  # Momentum integral gain
+
+        # Natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced swing-up assist using mechanical energy deficit
+        if abs(theta) > 0.8:
+            # Calculate current mechanical energy of pendulum
+            E_kinetic = 0.5 * M_POLE * (L_COM * dtheta)**2
+            E_potential = M_POLE * G * L_COM * (1 - np.cos(theta))
+            E_current = E_kinetic + E_potential
+
+            # Energy required to reach upright unstable equilibrium
+            E_target = 2 * M_POLE * G * L_COM  # Potential energy at top
+
+            # Energy deficit ratio (0 = full energy, 1 = no energy)
+            energy_deficit = max(0.0, 1.0 - E_current / E_target)
+
+            # Activation based on angle and energy deficit
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8)) * energy_deficit
+
+            # Directional assist based on pole angle and falling momentum
+            natural_freq = np.sqrt(G / L_COM)
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * natural_freq))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+=======
+        # Enhanced swing-up assist using mechanical energy deficit with predictive compensation
+        if abs(theta) > 0.8:
+            # Calculate current mechanical energy of pendulum
+            E_kinetic = 0.5 * M_POLE * (L_COM * dtheta)**2
+            E_potential = M_POLE * G * L_COM * (1 - np.cos(theta))
+            E_current = E_kinetic + E_potential
+
+            # Energy required to reach upright unstable equilibrium
+            E_target = 2 * M_POLE * G * L_COM  # Potential energy at top
+
+            # Energy deficit ratio (0 = full energy, 1 = no energy)
+            energy_deficit = max(0.0, 1.0 - E_current / E_target)
+
+            # Activation based on angle and energy deficit
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8)) * energy_deficit
+
+            # Directional assist based on pole angle and falling momentum
+            natural_freq = np.sqrt(G / L_COM)
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * natural_freq))
+
+            # Predictive momentum compensation with friction-aware dynamics
+            sin_t, cos_t = np.sin(theta), np.cos(theta)
+            Mtot = M_CART + M_POLE
+            denom0 = L_COM * (4.0/3.0 - M_POLE * cos_t**2 / Mtot)
+            temp_pred = (M_POLE * L_COM * dtheta**2 * sin_t) / Mtot
+            # Include friction terms in prediction
+            theta_acc_pred = (G * sin_t - cos_t * temp_pred + FRICTION_JOINT * dtheta / (M_POLE * L_COM)) / denom0
+            theta_pred = theta + dtheta * DT + 0.5 * theta_acc_pred * DT**2
+            predictive_boost = 1.0 + 0.15 * np.tanh(3.0 * (abs(theta_pred) - abs(theta)))
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor * predictive_boost
+            force = force + u_swing
+
+        # Gaussian-shaped mid-swing damping for critical transition zone
+        if 0.3 < abs(theta) < 0.7:
+            # Gaussian activation centered at 0.5 rad with sigma=0.2
+            gaussian_activation = np.exp(-0.5 * ((abs(theta) - 0.5) / 0.2)**2)
+            # Damping proportional to angular velocity and activation
+            midswing_damp = -2.5 * gaussian_activation * dtheta
+            force = force + midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position with joint angle-velocity gating
+        # Only activates when pole is nearly upright AND moving slowly
+        # This prevents premature activation during fast transient passes through upright
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            # Dynamic decay: stronger when angle is large, gentler near equilibrium
+            decay_rate = 0.90 + 0.08 * np.exp(-10.0 * abs(theta))
+            self.integral_x *= decay_rate
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        # Dual-gated integral action for cart position and momentum
+        # Only activates when pole is nearly upright AND moving slowly
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:  # Only update integrals when gate is significant
+            self.integral_x += x * DT
+            # Momentum integral: track angular velocity deficit
+            momentum_error = -dtheta  # We want dtheta -> 0
+            self.integral_momentum += momentum_error * DT
+            self.integral_momentum = np.clip(self.integral_momentum, -0.5, 0.5)
+        else:
+            # Dynamic decay: stronger when angle is large, gentler near equilibrium
+            decay_rate = 0.90 + 0.08 * np.exp(-10.0 * abs(theta))
+            self.integral_x *= decay_rate
+            self.integral_momentum *= 0.9  # Leaky decay for momentum integral
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        momentum_force = self.K_mom * integral_gate * self.integral_momentum * np.sign(theta + 1e-8)
+        force = force + integral_force + momentum_force
+>>>>>>> REPLACE
+</DIFF>

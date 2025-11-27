@@ -1,0 +1,49 @@
+<NAME>
+adaptive_energy_aware_swingup
+</NAME>
+
+<DESCRIPTION>
+The current swing-up assist uses a fixed magnitude (8.0) regardless of the system's energy state, potentially leading to over-actuation when the pendulum already has sufficient energy or under-actuation when it's deeply unstable.
+
+This proposal introduces energy-aware swing-up control by calculating the mechanical energy deficit relative to the upright position. The controller computes the current potential energy as M_POLE*G*L_COM*(1 - cos(theta)) and kinetic energy from angular motion, then compares this to the minimum energy required to reach upright (2*M_POLE*G*L_COM).
+
+When the energy deficit is large (pendulum far from upright), the assist force scales up to maximum effectiveness. As the pendulum approaches sufficient energy, the assist tapers off smoothly to prevent overshoot and oscillation. This adaptive approach should reduce unnecessary energy expenditure during swing-up while maintaining robust stabilization, improving both energy_bonus and potentially time_bonus by avoiding aggressive corrections needed after overshoot.
+
+The change preserves all existing control structures while enhancing the physics-informed nature of the swing-up phase, aligning with the challenge's emphasis on leveraging physical principles.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced swing-up assist for large angles (>0.8 rad)
+        if abs(theta) > 0.8:
+            # Smooth activation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+
+            # Normalized falling severity using angular momentum
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force += u_swing
+=======
+        # Enhanced energy-aware swing-up assist for large angles (>0.8 rad)
+        if abs(theta) > 0.8:
+            # Smooth activation based on angle deviation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+
+            # Normalized falling severity using angular momentum
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            # Energy deficit calculation: how much more energy needed to reach upright?
+            current_potential = M_POLE * G * L_COM * (1 - np.cos(abs(theta)))
+            min_energy_to_upright = 2 * M_POLE * G * L_COM  # Potential at inverted position
+            energy_deficit_ratio = max(0.0, 1.0 - current_potential / min_energy_to_upright)
+
+            # Scale assist force by energy deficit (more help when deeply unstable)
+            energy_scaling = 0.5 + 0.5 * energy_deficit_ratio
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity * energy_scaling
+            force += u_swing
+>>>>>>> REPLACE
+</DIFF>

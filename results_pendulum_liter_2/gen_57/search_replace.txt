@@ -1,0 +1,146 @@
+Looking at the performance data, I notice our current controller achieves good stabilization time (230 steps) but has room for improvement in energy efficiency (total_energy=17.56 vs best program's 14.81). The key insight is that we need better momentum management during the critical mid-swing phase.
+
+<NAME>
+enhanced_momentum_management
+
+<DESCRIPTION>
+The current controller shows good performance but uses more energy than the best program. I propose enhancing the mid-swing damping with phase-plane-aware directionality and improving the predictive compensation. Specifically:
+
+1. Add a directionality factor to mid-swing damping using tanh(3.0 * theta * dtheta) to ensure damping only activates when the pole is moving away from vertical
+2. Refine the predictive compensation by explicitly isolating centrifugal forces for clearer physical interpretation
+3. Add adaptive cart damping that scales with angle to suppress unnecessary movement
+4. Implement exponential decay for integral gain to reduce aggressiveness near equilibrium
+
+These changes should improve energy efficiency while maintaining fast stabilization time.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Phase 2: Mid-Swing Transition ---
+        elif abs(theta) > 0.25:
+            # Directional damping - only when moving away from upright
+            # This prevents adding energy when the pole is naturally returning
+            if theta * dtheta > 0:  # Moving away from vertical
+                mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+                K_d_midswing = 3.0
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+                force = force + midswing_damp
+
+            # Predictive momentum compensation with decomposed centrifugal term
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+
+            f_cart = -self.b_c * dx
+            f_joint = -self.b_j * dtheta
+
+            # Isolate centrifugal component for clearer physical interpretation
+            centrifugal_term = (self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+            base_temp = (force[0] + f_cart) / self.Mtot
+            temp_est = base_temp + centrifugal_term
+
+            denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+            theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+
+            dtheta_pred = dtheta + theta_acc_est * 0.04  # Predict 2 timesteps ahead
+
+            # Normalized divergence metric
+            pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+            predictive_correction = -0.15 * pred_divergence * np.tanh(2.5 * abs(theta))
+            force = force + predictive_correction
+=======
+        # --- Phase 2: Mid-Swing Transition ---
+        elif abs(theta) > 0.25:
+            # Enhanced directional damping with phase-plane awareness
+            # Only damp when moving away from vertical (theta*dtheta > 0) and use smooth activation
+            mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+            direction_factor = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))  # 1 when moving away, 0 when returning
+            if direction_factor > 0.6:  # Effectively when moving away
+                K_d_midswing = 4.0  # Slightly increased for better momentum control
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * direction_factor
+                force = force + midswing_damp
+
+            # Adaptive cart damping to suppress non-essential movement
+            cart_damping = -0.4 * dx * np.tanh(4.0 * abs(theta))
+            force = force + cart_damping
+
+            # Enhanced predictive compensation with explicit centrifugal isolation
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+
+            f_cart = -self.b_c * dx
+            f_joint = -self.b_j * dtheta
+
+            # Explicit centrifugal force isolation for clearer physics
+            centrifugal_force = self.m * self.l * dtheta**2 * sin_theta
+            cart_force_component = force[0] + f_cart
+            temp_est = (cart_force_component + centrifugal_force) / self.Mtot
+
+            denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+            theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+
+            dtheta_pred = dtheta + theta_acc_est * 0.04  # Predict 2 timesteps ahead
+
+            # Enhanced divergence metric with returning awareness
+            pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+            # Reduce correction when naturally returning to vertical
+            returning_mask = 0.5 * (1.0 - np.tanh(4.0 * theta * dtheta))
+            predictive_correction = -0.12 * pred_divergence * np.tanh(3.0 * abs(theta)) * returning_mask
+            force = force + predictive_correction
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # --- Phase 3: Precision Hold (Small Angles) ---
+        else:
+            # Enhanced integral control with state-dependent gain scheduling
+            # Exponential decay near equilibrium for smoother control
+            K_i_adaptive = 0.85 * np.exp(-2.0 * (abs(theta) + 0.5*abs(dtheta)))
+
+            # Accumulate integral only when very close to equilibrium
+            if abs(theta) < 0.1 and abs(dtheta) < 0.5:
+                self.integral_x += x * DT
+                self.integral_x = np.clip(self.integral_x, -1.0, 1.0)
+            else:
+                self.integral_x *= 0.97  # Faster decay when not in stable region
+
+            integral_force = K_i_adaptive * self.integral_x
+            force = force + integral_force
+
+            # Additional fine-tuning damping
+            force = force - 0.4 * dx - 0.2 * dtheta
+=======
+        # --- Phase 3: Precision Hold (Small Angles) ---
+        else:
+            # Enhanced integral control with exponential gain scheduling
+            # More aggressive decay near equilibrium to prevent overshoot
+            K_i_adaptive = 0.85 * np.exp(-3.0 * (abs(theta) + 0.8*abs(dtheta)))
+
+            # Dual-gated integral accumulation for better stability
+            angle_condition = abs(theta) < 0.08
+            velocity_condition = abs(dtheta) < 0.3
+            if angle_condition and velocity_condition:
+                self.integral_x += x * DT
+                self.integral_x = np.clip(self.integral_x, -0.8, 0.8)  # Tighter bounds
+            else:
+                self.integral_x *= 0.98  # Slower decay to preserve correction
+
+            integral_force = K_i_adaptive * self.integral_x
+            force = force + integral_force
+
+            # Precision damping tuned for minimal energy usage
+            force = force - 0.3 * dx - 0.15 * dtheta
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Always apply some cart damping to suppress non-essential movement
+        force = force - 0.1 * dx
+=======
+        # Adaptive cart damping that scales with system energy state
+        energy_state = abs(theta) + 0.3 * abs(dtheta) + 0.1 * abs(dx)
+        cart_damping_factor = 0.1 + 0.05 * np.tanh(2.0 * energy_state)
+        force = force - cart_damping_factor * dx
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,71 @@
+<NAME>fine_tune_q_matrix</NAME>
+<DESCRIPTION>Fine-tune the Q-matrix by setting diag([4.5, 44.0, 0.6, 3.25]) matching top prior scores (~4920) and recommendation 1 for slightly higher angular velocity penalty (3.25) to reduce early oscillations and improve damping without sacrificing responsiveness or energy. Current Q has suboptimal weights (42.0, 2.8).</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: aggressive angular control with higher velocity penalty
+        Q = np.diag([4.5, 42.0, 0.6, 2.8])  # Increased penalties for faster convergence
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: fine-tuned from top priors for optimal damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.25])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+<NAME>revert_best_gain_scheduling</NAME>
+<DESCRIPTION>Revert multiplicative gain scheduling to exact formulation from top-scoring priors (4920+): pos_gain=1+0.5*tanh(5*max(0,|theta|-0.6)), vel_gain=1+0.3*tanh(4*max(0,|dtheta|-1.0)). Proven to enable faster convergence than current less-aggressive sigmoid-based gains.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Smooth gain scheduling using tanh for differentiable transitions
+        # Position-based gain: smooth increase for large angles
+        pos_gain = 1.0 + 0.4 * (np.tanh(4.0 * (abs(theta) - 0.5)) + 1.0) * 0.5
+
+        # Velocity-based gain: smooth increase for high angular velocity
+        vel_gain = 1.0 + 0.25 * (np.tanh(3.0 * (abs(dtheta) - 0.8)) + 1.0) * 0.5
+
+        # Combined adaptive gain (multiplicative)
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+=======
+        # Smooth, differentiable gain scheduling using tanh activation (top prior)
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+>>>>>>> REPLACE
+</DIFF>
+<NAME>robust_angle_normalization</NAME>
+<DESCRIPTION>Enhance angle normalization with epsilon (1e-6) for numerical stability and hysteresis prevention near ±π during fast swings, per recommendation 5. Prevents spurious gain changes in edge cases while preserving current behavior.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+=======
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-6) % (2 * np.pi)) - np.pi
+>>>>>>> REPLACE
+</DIFF>
+<NAME>discrete_time_lqr_zoh</NAME>
+<DESCRIPTION>Switch to discrete-time LQR with ZOH discretization (scipy.signal.cont2discrete) and solve_discrete_are to align controller dynamics precisely with simulator's DT=0.02 Euler steps. Addresses continuous-discrete mismatch causing transient inaccuracies (recommendation 3), enabling faster stabilization and higher time_bonus while retaining energy efficiency.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def solve_lqr(self, A, B, Q, R):
+        """Solve discrete-time LQR with ZOH discretization"""
+        from scipy.linalg import solve_discrete_are
+        from scipy import signal
+        Ad, Bd, _, _ = signal.cont2discrete((A, B), DT, method='zoh')
+        P = solve_discrete_are(Ad, Bd, Q, R)
+        K = np.linalg.solve(R + Bd.T @ P @ Bd, Bd.T @ P @ Ad)
+        return K
+>>>>>>> REPLACE
+</DIFF>

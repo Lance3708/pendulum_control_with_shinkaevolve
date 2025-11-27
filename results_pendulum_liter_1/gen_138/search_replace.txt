@@ -1,0 +1,39 @@
+<NAME>
+enhanced_integral_suppression
+</NAME>
+
+<DESCRIPTION>
+The current integral control, while effective for steady-state error, risks windup during large-angle swings when the cart is being aggressively moved to catch the falling pole. The existing leaky integration helps but could be more aggressive when the pole is far from upright.
+
+This proposal introduces an angle-proportional integral decay mechanism: the decay factor becomes stronger (closer to 0.85) as the pole angle increases, and weaker (closer to 1.0) only when very near vertical. This uses an exponential suppression function that sharply reduces integral buildup during extreme excursions, preventing counter-productive integral action that fights the swing-up dynamics.
+
+The change refines the successful soft-switched integral concept by adding physical insight: when the pole is far from upright, any cart position error should not accumulate integral, as the system is in a deliberate transient phase. Only when both angle and angular velocity are small should integral be allowed to build freely.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (|theta| < 0.1 rad) AND moving slowly
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))  # Suppress integral when |dtheta| > 1.0
+        gate = angle_gate * velocity_gate
+        self.integral_x += x * DT * gate
+        # Enhanced leaky integration with angle-dependent decay
+        self.integral_x *= (0.90 + 0.1 * np.exp(-10 * abs(theta)))  # Stronger decay when far from upright
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= self.K_i * self.integral_x * gate
+=======
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (|theta| < 0.1 rad) AND moving slowly
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))  # Suppress integral when |dtheta| > 1.0
+        gate = angle_gate * velocity_gate
+        self.integral_x += x * DT * gate
+        # Aggressive angle-proportional integral decay to prevent windup during large swings
+        # Decay ranges from 0.85 at large angles to ~0.99 when |theta| < 0.1
+        decay_factor = 0.85 + 0.15 * np.exp(-8.0 * max(0.0, abs(theta) - 0.1))
+        self.integral_x *= decay_factor
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= self.K_i * self.integral_x * gate
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,141 @@
+<NAME>
+reflexive_recovery_with_integral_reset
+</NAME>
+
+<DESCRIPTION>
+The key insight from analyzing the top performers is that rapid stabilization (high time bonus) requires more aggressive early intervention, particularly during the recovery phase. The current program's "precision" phase begins too early (at 0.15 rad), causing premature reliance on integral control before the system has fully stabilized energetically.
+
+This change implements two critical improvements:
+1.  **Delayed Precision Onset:** Raise the threshold for entering the precision hold phase to 0.12 radians. This keeps the controller in the more dynamically responsive "recovery" mode longer, allowing the predictive and damping mechanisms to dissipate residual energy before engaging the integral action.
+2.  **Integral Windup Reset on Transition:** When transitioning from emergency to recovery, reset the integral accumulator (`self.integral_x`) to zero. During the high-force swing-up, the integral accumulates significant bias which is detrimental when switching to the fine-control recovery phase. A clean slate allows the recovery logic to work effectively without fighting old biases.
+
+These changes directly target the trade-off between speed and stability, aiming to shorten the stabilization time while maintaining the high success rate.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # === PHASE 2: RECOVERY (0.15 < |θ| ≤ 0.8) ===
+        elif abs_theta > 0.15:
+            # Moderate gain scheduling
+            gain = 1.0 + 0.3 * np.tanh(4.0 * (abs_theta - 0.4))
+            vel_boost = 1.0 + 0.2 * np.tanh(3.0 * max(0, abs(dtheta) - 0.8))
+            force *= gain * vel_boost
+
+            # Direction-aware mid-swing damping (only when returning)
+            # theta*dtheta < 0 means returning to vertical
+            is_returning = theta * dtheta < 0
+            if is_returning and abs_theta > 0.25 and abs_theta < 0.75:
+                mid_activation = np.exp(-4.0 * (abs_theta - 0.5)**2)
+                K_damp = 3.0 * (1.0 + np.tanh(3.0 * abs(theta * dtheta)))
+                force += K_damp * dtheta * mid_activation
+
+            # Predictive correction with centrifugal isolation
+            theta_acc = self._predict_theta_acc(theta, dtheta, dx, force)
+            dtheta_pred = dtheta + theta_acc * DT
+
+            pred_div = theta * dtheta_pred / (self.omega_n * self.l)
+            # Only correct when diverging (pred_div > 0)
+            if pred_div > 0:
+                force -= 0.12 * pred_div * np.tanh(2.5 * abs_theta)
+
+            # Slow integral decay
+            self.integral_x *= 0.97
+
+        # === PHASE 3: PRECISION (|θ| ≤ 0.15) ===
+        else:
+            # Precision integral control with position-direction-aware bounds
+            lower_bound = -1.2 - 0.3 * x
+            upper_bound = 1.2 - 0.3 * x
+
+            # Update integral
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, lower_bound, upper_bound)
+
+            # Adaptive integral gain - stronger near equilibrium
+            K_i = 0.9 * np.exp(-2.0 * (abs_theta + 0.4 * abs(dtheta)))
+            K_i = np.clip(K_i, 0.25, 0.9)
+
+            # Gate based on stability
+            gate = np.tanh(15.0 * (0.12 - abs_theta)) * np.tanh(10.0 * (0.8 - abs(dtheta)))
+            gate = max(0, gate)
+
+            integral_force = K_i * gate * self.integral_x
+            force -= integral_force
+
+            # Direct position centering when very stable
+            stability = np.exp(-10.0 * (theta**2 + 0.3 * dtheta**2))
+            if stability > 0.5:
+                force -= 0.7 * x * stability + 0.35 * dx * stability
+
+        # Universal light cart damping (energy efficiency)
+        force -= 0.3 * dx * np.tanh(4.0 * abs_theta)
+
+        return float(force)
+=======
+        # === PHASE 2: RECOVERY (0.12 < |θ| ≤ 0.8) ===
+        elif abs_theta > 0.12:
+            # Reset integral upon entering recovery from emergency
+            if hasattr(self, '_last_abs_theta') and self._last_abs_theta > 0.8:
+                self.integral_x = 0.0
+
+            # Moderate gain scheduling
+            gain = 1.0 + 0.3 * np.tanh(4.0 * (abs_theta - 0.4))
+            vel_boost = 1.0 + 0.2 * np.tanh(3.0 * max(0, abs(dtheta) - 0.8))
+            force *= gain * vel_boost
+
+            # Direction-aware mid-swing damping (only when returning)
+            # theta*dtheta < 0 means returning to vertical
+            is_returning = theta * dtheta < 0
+            if is_returning and abs_theta > 0.25 and abs_theta < 0.75:
+                mid_activation = np.exp(-4.0 * (abs_theta - 0.5)**2)
+                K_damp = 3.0 * (1.0 + np.tanh(3.0 * abs(theta * dtheta)))
+                force += K_damp * dtheta * mid_activation
+
+            # Predictive correction with centrifugal isolation
+            theta_acc = self._predict_theta_acc(theta, dtheta, dx, force)
+            dtheta_pred = dtheta + theta_acc * DT
+
+            pred_div = theta * dtheta_pred / (self.omega_n * self.l)
+            # Only correct when diverging (pred_div > 0)
+            if pred_div > 0:
+                force -= 0.12 * pred_div * np.tanh(2.5 * abs_theta)
+
+            # Slow integral decay
+            self.integral_x *= 0.97
+
+        # === PHASE 3: PRECISION (|θ| ≤ 0.12) ===
+        else:
+            # Precision integral control with position-direction-aware bounds
+            lower_bound = -1.2 - 0.3 * x
+            upper_bound = 1.2 - 0.3 * x
+
+            # Update integral
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, lower_bound, upper_bound)
+
+            # Adaptive integral gain - stronger near equilibrium
+            K_i = 0.9 * np.exp(-2.0 * (abs_theta + 0.4 * abs(dtheta)))
+            K_i = np.clip(K_i, 0.25, 0.9)
+
+            # Gate based on stability
+            gate = np.tanh(15.0 * (0.12 - abs_theta)) * np.tanh(10.0 * (0.8 - abs(dtheta)))
+            gate = max(0, gate)
+
+            integral_force = K_i * gate * self.integral_x
+            force -= integral_force
+
+            # Direct position centering when very stable
+            stability = np.exp(-10.0 * (theta**2 + 0.3 * dtheta**2))
+            if stability > 0.5:
+                force -= 0.7 * x * stability + 0.35 * dx * stability
+
+        # Store last absolute theta for transition detection
+        self._last_abs_theta = abs_theta
+
+        # Universal light cart damping (energy efficiency)
+        force -= 0.3 * dx * np.tanh(4.0 * abs_theta)
+
+        return float(force)
+>>>>>>> REPLACE
+
+</DIFF>

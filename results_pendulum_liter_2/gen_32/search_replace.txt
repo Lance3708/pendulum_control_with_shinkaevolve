@@ -1,0 +1,185 @@
+<NAME>
+lookahead_lqr_control
+</NAME>
+
+<DESCRIPTION>
+Replaces the standard LQR control logic with a "Lookahead LQR" strategy. This method estimates the system's acceleration using the full nonlinear physics model and predicts the state 0.025s into the future (compensating for the simulation time step and actuation delay). The LQR control action is then computed based on this predicted state, providing effective derivative action and delay compensation. Additionally, an Energy-Risk modulation is applied to the adaptive gain to prevent over-aggressive correction when the system energy is high (near the separatrix), improving stability during the swing-up phase.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Direction-aware mid-swing angular damping
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+        if abs(theta) > 0.25 and abs(theta) < 0.85 and theta * dtheta > 0:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Enhanced predictive momentum compensation with full physics model
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # More accurate physics: estimate the 'temp' term from simulation EoM
+        # This includes the non-linear centrifugal component for better prediction
+        estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_temp - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence, with slightly increased gain
+        # and a "returning" mask to reduce correction when pole is naturally coming back
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        # The returning mask is 1.0 when moving away from upright, 0.0 when returning
+        returning_mask = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))
+        predictive_correction = -0.14 * pred_divergence * np.tanh(3.0 * abs(theta)) * returning_mask
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # NEW: Adaptive cart damping to suppress non-essential movement
+        adaptive_dx_damping = -0.5 * dx * np.tanh(5.0 * abs(theta))
+        force = force + adaptive_dx_damping
+
+        # Adaptive integral control with state-dependent gain
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        K_i_adaptive = self.K_i * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.2, self.K_i)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """
+        Lookahead LQR with Energy-Risk Modulation.
+        Uses physics-based state prediction to compensate for actuation delay and discrete time steps.
+        """
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # --- 1. Physics-based State Prediction (Delay Compensation) ---
+        # Estimate current accelerations using a preliminary control guess
+        state_vec = np.array([x, theta, dx, dtheta])
+        u_guess = -self.K @ state_vec
+
+        # Calculate accelerations using the full nonlinear model
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # 'temp' term from Lagrangian dynamics (acceleration of system CoM approx)
+        # Note: u_guess is an array, we access the scalar value
+        term_temp = (u_guess[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+
+        denom = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+        theta_acc_est = (self.g * sin_theta - cos_theta * term_temp - self.b_j * dtheta / (self.m * self.l)) / denom
+        x_acc_est = term_temp - (self.m * self.l * theta_acc_est * cos_theta) / self.Mtot
+
+        # Predict state slightly into the future (DT + small actuation lag) to compute control
+        lookahead = 0.025
+        x_pred = x + dx * lookahead + 0.5 * x_acc_est * lookahead**2
+        theta_pred = theta + dtheta * lookahead + 0.5 * theta_acc_est * lookahead**2
+        dx_pred = dx + x_acc_est * lookahead
+        dtheta_pred = dtheta + theta_acc_est * lookahead
+
+        state_pred = np.array([x_pred, theta_pred, dx_pred, dtheta_pred])
+
+        # --- 2. Main Control Calculation on Predicted State ---
+        base_force = -self.K @ state_pred
+
+        # --- 3. Energy-Risk Adaptive Gain ---
+        # Calculate mechanical energy risk (potential + kinetic) relative to upright
+        # PE ~ mgl(1-cos), KE ~ 0.5*m*v^2
+        risk_energy = self.m * self.g * self.l * (1.0 - np.cos(theta)) + \
+                      0.5 * self.Mtot * dx**2 + 0.5 * self.m * (self.l * dtheta)**2
+
+        # Attenuate gain when energy is high (near separatrix) to prevent over-correction
+        # This helps stability during the violent swing-up phase
+        risk_attenuation = 1.0
+        if risk_energy > 0.8:
+            risk_attenuation = 1.0 / (1.0 + 1.5 * (risk_energy - 0.8))
+
+        # Combine with existing error-based gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain * risk_attenuation
+
+        force = base_force * adaptive_gain
+
+        # --- 4. Auxiliary Damping & Assist ---
+
+        # Direction-aware mid-swing angular damping (critical for catching the swing)
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+        if abs(theta) > 0.25 and abs(theta) < 0.85 and theta * dtheta > 0:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (self.omega_n * self.l))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Adaptive cart damping to suppress oscillation
+        adaptive_dx_damping = -0.5 * dx * np.tanh(5.0 * abs(theta))
+        force = force + adaptive_dx_damping
+
+        # --- 5. Integral Control ---
+        # Dual-gated integral action with adaptive gain
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        K_i_adaptive = self.K_i * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.2, self.K_i)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

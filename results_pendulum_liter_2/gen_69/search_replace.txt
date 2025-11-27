@@ -1,0 +1,78 @@
+<NAME>
+enhanced_predictive_compensation_with_observer
+</NAME>
+
+<DESCRIPTION>
+The key insight is to improve the predictive momentum compensation by implementing a simple observer that tracks the actual angular acceleration and uses this information to refine our predictions. Instead of relying solely on the model-based estimate, we can compare the predicted angular velocity with the actual measured one to detect model inaccuracies (especially due to the high joint friction). This allows us to adjust our predictive correction in real-time, leading to more accurate and timely interventions. Additionally, we increase the predictive gain slightly and make the activation smoother with a tanh function instead of an exponential.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced predictive momentum compensation
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Estimate acceleration using physics model (temp term matches x_acc approx)
+        # Using current proposed force
+        estimated_x_acc_term = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+
+        # Calculate expected angular acceleration
+        denom = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_x_acc_term - self.b_j * dtheta / (self.m * self.l)) / denom
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Predictive momentum compensation. The negative sign here provides critical phase lead,
+        # acting as a non-linear damping when returning to center and accelerating the "catch" maneuver
+        # when falling away. This counter-intuitive sign is empirically the most effective.
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Enhanced predictive momentum compensation with observer
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Estimate acceleration using physics model (temp term matches x_acc approx)
+        # Using current proposed force
+        estimated_x_acc_term = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+
+        # Calculate expected angular acceleration
+        denom = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_x_acc_term - self.b_j * dtheta / (self.m * self.l)) / denom
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Simple observer: track actual angular acceleration
+        # We use a simple IIR filter to estimate the actual angular acceleration
+        # If this is the first call, initialize the filter
+        if not hasattr(self, 'dtheta_prev'):
+            self.dtheta_prev = dtheta
+            self.theta_acc_observed = 0.0
+        else:
+            # Calculate observed angular acceleration
+            theta_acc_observed_raw = (dtheta - self.dtheta_prev) / DT
+            # Filter it to reduce noise sensitivity
+            self.theta_acc_observed = 0.8 * self.theta_acc_observed + 0.2 * theta_acc_observed_raw
+            self.dtheta_prev = dtheta
+
+        # Calculate discrepancy between model and observation
+        # Positive discrepancy means the pole is accelerating faster than the model predicts
+        # This often happens due to unmodeled friction effects or delays
+        discrepancy = self.theta_acc_observed - theta_acc_est
+
+        # Predictive momentum compensation. The negative sign here provides critical phase lead,
+        # acting as a non-linear damping when returning to center and accelerating the "catch" maneuver
+        # when falling away. This counter-intuitive sign is empirically the most effective.
+        # We now adjust the prediction based on the observer discrepancy
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        # Base predictive gain
+        k_pred = 0.14
+        # Increase gain if there's a significant discrepancy indicating model error
+        # This makes the controller more responsive to unmodeled dynamics
+        adaptive_k_pred = k_pred * (1.0 + 0.5 * np.tanh(2.0 * abs(discrepancy)))
+        predictive_correction = -adaptive_k_pred * pred_divergence * np.tanh(2.5 * abs(theta))
+        force = force + predictive_correction
+>>>>>>> REPLACE
+
+</DIFF>

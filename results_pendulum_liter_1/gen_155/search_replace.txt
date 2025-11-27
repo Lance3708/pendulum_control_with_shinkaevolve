@@ -1,0 +1,38 @@
+<NAME>
+enhanced_integral_control_with_velocity_gating_and_adaptive_decay
+</NAME>
+
+<DESCRIPTION>
+This improvement enhances the integral control mechanism by introducing two key innovations:
+1. Velocity-based gating to prevent integral windup during rapid pole movements
+2. Adaptive integral decay that becomes more aggressive as the pole deviates further from upright
+
+These changes build upon the existing soft-switched integral action but make it more robust to transient behaviors and large swings. The velocity gating ensures integral action only accumulates when both angle and angular velocity are small, preventing windup during aggressive swings. The adaptive decay provides stronger leakage when the pole is far from equilibrium, preserving integral readiness for when it's needed most.
+
+This should reduce steady-state errors while maintaining stability during the challenging initial swing-up phase.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (|theta| < 0.1 rad)
+        gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        self.integral_x += x * DT * gate
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= self.K_i * self.integral_x * gate
+
+=======
+        # Dual-gated integral action: activates only when nearly upright AND moving slowly
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))  # Suppress integral when |dtheta| > 1.0
+        gate = angle_gate * velocity_gate
+        self.integral_x += x * DT * gate
+        # Angle-proportional integral decay: more aggressive during large swings
+        decay_factor = 0.85 + 0.15 * np.exp(-8.0 * max(0.0, abs(theta) - 0.1))
+        self.integral_x *= decay_factor
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= self.K_i * self.integral_x * gate
+
+>>>>>>> REPLACE
+
+</DIFF>

@@ -1,0 +1,108 @@
+# EVOLVE-BLOCK-START
+import numpy as np
+from scipy.linalg import solve_continuous_are, dlqr
+from scipy.signal import cont2discrete
+
+class Controller:
+    """
+    Feedback Linearization + Discrete LQR + Gated Integral Controller
+    
+    Novel decoupling control: computes optimal desired theta_ddot from discrete LQR,
+    then inverts exact nonlinear dynamics to achieve it precisely.
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.b_c = FRICTION_CART
+        self.b_j = FRICTION_JOINT
+        self.Mtot = self.M + self.m
+        self.DT = 0.02
+        denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
+
+        # Continuous-time A and B matrices (for linearization reference)
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+        A[3, 1] = self.g / denom0
+        A[3, 2] = self.b_c / (self.Mtot * denom0)
+        A[3, 3] = -self.b_j / (self.m * self.l * denom0)
+        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
+        A[2, 2] = -self.b_c / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
+        A[2, 3] = self.b_j / (self.Mtot * denom0)
+
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (self.Mtot * denom0)
+
+        # Store linear theta row for prediction
+        self.A_theta_row = A[3, :].copy()
+        self.B_theta = B[3, 0]
+
+        # Discrete-time LQR (ZOH matching simulator)
+        Ad, Bd, _, _ = cont2discrete((A, B, np.eye(4), np.zeros((4, 1))), self.DT, method='zoh')
+
+        # Optimized Q with refined dtheta weight
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])
+        R = np.array([[1.0]])
+
+        # Discrete LQR gains
+        self.K, _, _ = dlqr(Ad, Bd, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 8.0  # Tuned for zero steady-state x error
+        self.integral_limit = 2.0
+
+    def get_action(self, state):
+        x, theta, dx, dtheta = state
+
+        # Robust arctan2 normalization (rec 1)
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Proven adaptive gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        # Boosted linear LQR force
+        u_lin = -self.K @ state_vec * adaptive_gain
+
+        # Desired theta_ddot from linear closed-loop prediction
+        desired_tt = self.A_theta_row @ state_vec + self.B_theta * u_lin
+
+        # Nonlinear inverse dynamics to achieve desired_tt exactly
+        sin_th = np.sin(theta)
+        cos_th = np.cos(theta)
+        f_c = -self.b_c * dx
+        f_j = -self.b_j * dtheta
+        denom_th = self.l * (4.0 / 3.0 - self.m * cos_th**2 / self.Mtot)
+        cent = self.m * self.l * dtheta**2 * sin_th
+
+        if abs(cos_th) < 1e-3 or abs(denom_th) < 1e-6:
+            # Fallback near singularity
+            force = float(u_lin[0])
+        else:
+            temp = (self.g * sin_th + f_j / (self.m * self.l) - desired_tt * denom_th) / cos_th
+            force = self.Mtot * temp - f_c - cent
+
+        # Soft-switched integral on x (rec 5)
+        gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        self.integral_x += gate * x * self.DT
+        self.integral_x = np.tanh(self.integral_x / self.integral_limit) * self.integral_limit
+        force += self.K_i * gate * self.integral_x
+
+        return float(np.clip(force, -100.0, 100.0))
+
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    return controller.get_action(state)
+# EVOLVE-BLOCK-END

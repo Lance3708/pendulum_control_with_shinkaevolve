@@ -1,0 +1,15 @@
+Evaluating program: results_pendulum_liter/gen_80/main.py
+Saving results to: results_pendulum_liter/gen_80/results
+Run 1/1 completed in 0.07 seconds
+Correctness and error status saved to results_pendulum_liter/gen_80/results/correct.json
+Metrics saved to results_pendulum_liter/gen_80/results/metrics.json
+Evaluation and Validation completed successfully.
+Metrics:
+  combined_score: 4467.483573903295
+  public: {'score': 4467.483573903295, 'base_score': 372.0231947811288, 'time_bonus': 2226.9218345467384, 'energy_bonus': 2468.538544575428, 'success_bonus': 400.0, 'stabilization_time': 193, 'stabilization_ratio': 0.193, 'avg_energy_per_step': 0.014765485898550427, 'total_energy': 14.765485898550427, 'mean_step_reward': 0.3720231947811288, 'final_theta_error': 0.015854429375732337, 'final_x_error': 0.9020918841590523, 'stable_theta_error': 0.007168406610734638, 'stable_x_error': 0.5131141476207212}
+  private: {'oscillation_penalty': -0.0, 'angle_oscillation_penalty': -0.0, 'boundary_penalty': -1000.0, 'unstable_penalty': 0.0, 'max_theta': 1.0218810958882165, 'max_x': 8.850274662984738, 'max_force': 100.0, 'force_std': 12.151320689359236}
+  execution_time_mean: 0.06733827700372785
+  execution_time_std: 0.0
+  num_valid_runs: 1
+  num_invalid_runs: 0
+  all_validation_errors: []

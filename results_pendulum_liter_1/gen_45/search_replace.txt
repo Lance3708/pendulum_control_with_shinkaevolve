@@ -1,0 +1,59 @@
+<NAME>
+optimized_q_weights_and_earlier_gain_activation
+</NAME>
+
+<DESCRIPTION>
+Based on the performance analysis, the current best controller achieves stabilization in 198 steps with a score of 4878.27. The key insight is that the time_bonus (2192.36) has significant room for improvement since faster stabilization yields higher scores.
+
+Looking at the recommendations and prior results:
+1. The best performer uses Q = [4.0, 38.0, 0.5, 3.0] with smooth tanh-based gain scheduling
+2. Controllers with higher Q[1] (angular weight) and Q[3] (angular velocity damping) tend to stabilize faster
+3. Earlier activation of adaptive gains (lower thresholds) can help during the critical initial phase
+
+My strategy:
+1. Increase Q[1] from 38.0 to 42.0 for more aggressive angle correction
+2. Increase Q[3] from 3.0 to 3.5 for stronger oscillation damping
+3. Lower the gain scheduling thresholds (0.6→0.4 for angle, 1.0→0.6 for velocity) to activate earlier
+4. Slightly increase the gain multipliers for faster initial response
+
+This should reduce stabilization time while maintaining energy efficiency, as the LQR framework inherently balances control effort.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: aggressive angular correction with strong damping
+        # Q[1]=38.0 for fast angle correction, Q[3]=3.0 for oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.0])
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: more aggressive angular correction with stronger damping
+        # Q[1]=42.0 for faster angle correction, Q[3]=3.5 for better oscillation damping
+        Q = np.diag([4.5, 42.0, 0.6, 3.5])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+=======
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Earlier activation thresholds for faster initial response
+        # Stronger gains for more aggressive correction during large deviations
+        pos_gain = 1.0 + 0.6 * np.tanh(6.0 * max(0.0, abs(theta) - 0.4))
+        vel_gain = 1.0 + 0.4 * np.tanh(5.0 * max(0.0, abs(dtheta) - 0.6))
+
+        # Synergy term: extra boost when pole is falling away (theta and dtheta same sign)
+        falling_away = 1.0 if theta * dtheta > 0 else 0.0
+        synergy_gain = 1.0 + 0.15 * falling_away * np.tanh(3.0 * abs(theta))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain * synergy_gain
+>>>>>>> REPLACE
+</DIFF>

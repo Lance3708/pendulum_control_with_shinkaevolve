@@ -1,0 +1,426 @@
+--- a/original.py
++++ b/original.py
+@@ -1,207 +1,348 @@
+ import numpy as np
+ 
+ # --- Physics Constants ---
+ M_CART = 1.0       # Mass of the cart (kg)
+ M_POLE = 0.35      # Mass of the pole (kg) - 更重，大幅增加控制难度
+ L_POLE = 2.5       # Total length of the pole (m) - 更长，极不稳定
+ L_COM = L_POLE / 2 # Length to center of mass (m)
+ G = 9.81           # Gravity (m/s^2)
+ FRICTION_CART = 0.35 # Coefficient of friction for cart - 高摩擦，更多能量损失
+ FRICTION_JOINT = 0.25 # Coefficient of friction for joint - 高关节摩擦
+ DT = 0.02          # Time step (s)
+ MAX_STEPS = 1000   # 20 seconds simulation
+ 
+ def simulate_pendulum_step(state, force, dt):
+     """
+     Simulates one time step of the Single Inverted Pendulum.
+ 
+     State vector: [x, theta, dx, dtheta]
+     - x: Cart position (m)
+     - theta: Pole angle (rad), 0 is upright
+     - dx: Cart velocity (m/s)
+     - dtheta: Pole angular velocity (rad/s)
+ 
+     Args:
+         state: numpy array of shape (4,)
+         force: scalar float, force applied to the cart (N)
+         dt: float, time step (s)
+ 
+     Returns:
+         next_state: numpy array of shape (4,)
+     """
+     x, theta, dx, dtheta = state
+ 
+     # Precompute trig terms
+     sin_theta = np.sin(theta)
+     cos_theta = np.cos(theta)
+ 
+     # Equations of Motion (Non-linear)
+     # derived from Lagrangian dynamics
+ 
+     # Total mass
+     M_total = M_CART + M_POLE
+ 
+     # Friction forces
+     f_cart = -FRICTION_CART * dx
+     f_joint = -FRICTION_JOINT * dtheta
+ 
+     # Denominator for solving linear system of accelerations
+     # Derived from solving the system:
+     # 1) (M+m)x_dd + (ml cos)theta_dd = F + f_cart + ml*theta_d^2*sin
+     # 2) (ml cos)x_dd + (ml^2)theta_dd = mgl sin + f_joint
+ 
+     temp = (force + f_cart + M_POLE * L_COM * dtheta**2 * sin_theta) / M_total
+ 
+     theta_acc = (G * sin_theta - cos_theta * temp + f_joint / (M_POLE * L_COM)) / \
+                 (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / M_total))
+ 
+     x_acc = temp - (M_POLE * L_COM * theta_acc * cos_theta) / M_total
+ 
+     # Euler integration
+     next_x = x + dx * dt
+     next_theta = theta + dtheta * dt
+     next_dx = dx + x_acc * dt
+     next_dtheta = dtheta + theta_acc * dt
+ 
+     return np.array([next_x, next_theta, next_dx, next_dtheta])
+ 
+ 
+ # EVOLVE-BLOCK-START
+ class Controller:
+     """
+-    Enhanced Adaptive LQR with Integral Control and Swing-Up Assist
+-    Combines proven LQR core with integral action for zero steady-state error
+-    and physics-informed swing-up assist for faster large-angle recovery.
++    Phase-Based Adaptive Controller for Single Inverted Pendulum
++    Dynamically switches between specialized control strategies based on system state
+     """
+ 
+     def __init__(self):
+         # System parameters
+-        m = M_POLE
+-        M = M_CART
+-        l = L_COM
+-        g = G
+-        Mtot = M + m
+-        denom0 = l * (4.0 / 3.0 - m / Mtot)
+-        b_c = FRICTION_CART
+-        b_j = FRICTION_JOINT
+-
+-        # Friction-aware linearized A matrix
++        self.m = M_POLE
++        self.M = M_CART
++        self.l = L_COM
++        self.g = G
++        self.Mtot = self.M + self.m
++        self.denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
++        
++        # Energy parameters
++        self.E_upright = self.m * self.g * self.l  # Potential energy at upright
++        
++        # Integral states
++        self.integral_x = 0.0
++        self.integral_theta = 0.0
++        
++        # Phase tracking
++        self.previous_theta = 0.0
++        self.swing_count = 0
++        self.last_transition_time = 0
++        
++        # Precomputed LQR controllers for different phases
++        self.lqr_controllers = self._setup_lqr_controllers()
++
++    def _setup_lqr_controllers(self):
++        """Setup LQR controllers for different operational phases"""
++        controllers = {}
++        
++        # Swing-up phase LQR (aggressive angle correction)
++        A_su = self._build_A_matrix()
++        B_su = self._build_B_matrix()
++        Q_su = np.diag([1.0, 100.0, 1.0, 20.0])  # Heavy angle weighting
++        R_su = np.array([[0.1]])
++        K_su = self._solve_lqr(A_su, B_su, Q_su, R_su)
++        controllers['swingup'] = {'K': K_su, 'Q': Q_su, 'R': R_su}
++        
++        # Transition phase LQR (balanced correction)
++        Q_tr = np.diag([5.0, 50.0, 2.0, 10.0])  # Balanced weighting
++        R_tr = np.array([[1.0]])
++        K_tr = self._solve_lqr(A_su, B_su, Q_tr, R_tr)
++        controllers['transition'] = {'K': K_tr, 'Q': Q_tr, 'R': R_tr}
++        
++        # Balancing phase LQR (precise control)
++        Q_bal = np.diag([8.0, 80.0, 3.0, 15.0])  # High precision weighting
++        R_bal = np.array([[2.0]])
++        K_bal = self._solve_lqr(A_su, B_su, Q_bal, R_bal)
++        controllers['balancing'] = {'K': K_bal, 'Q': Q_bal, 'R': R_bal}
++        
++        # Fine-tuning phase LQR (minimal energy)
++        Q_ft = np.diag([10.0, 100.0, 1.0, 5.0])  # Minimal control effort
++        R_ft = np.array([[5.0]])
++        K_ft = self._solve_lqr(A_su, B_su, Q_ft, R_ft)
++        controllers['fine_tune'] = {'K': K_ft, 'Q': Q_ft, 'R': R_ft}
++        
++        return controllers
++
++    def _build_A_matrix(self):
++        """Build linearized A matrix"""
+         A = np.zeros((4, 4))
+         A[0, 2] = 1.0
+         A[1, 3] = 1.0
+-
+-        # theta_acc row (3)
+-        A[3, 1] = g / denom0
+-        A[3, 2] = b_c / (Mtot * denom0)
+-        A[3, 3] = -b_j / (m * l * denom0)
+-
+-        # x_acc row (2)
+-        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+-        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+-        A[2, 3] = b_j / (Mtot * denom0)
+-
+-        # B matrix
++        A[3, 1] = self.g / self.denom0
++        A[3, 2] = FRICTION_CART / (self.Mtot * self.denom0)
++        A[3, 3] = -FRICTION_JOINT / (self.m * self.l * self.denom0)
++        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
++        A[2, 2] = -FRICTION_CART / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
++        A[2, 3] = FRICTION_JOINT / (self.Mtot * self.denom0)
++        return A
++
++    def _build_B_matrix(self):
++        """Build B matrix"""
+         B = np.zeros((4, 1))
+-        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+-        B[3, 0] = -1.0 / (Mtot * denom0)
+-
+-        # Proven optimal LQR weights from best performer (4920.15 score)
+-        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+-        R = np.array([[1.0]])
+-
+-        # Solve LQR gains
+-        self.K = self.solve_lqr(A, B, Q, R)
+-
+-        # Integral control parameters
+-        self.integral_x = 0.0
+-        self.K_i = 0.05
+-
+-        # Swing-up assist parameters
+-        self.omega_n = np.sqrt(G / L_COM)
+-
+-    def solve_lqr(self, A, B, Q, R):
++        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * self.denom0)
++        B[3, 0] = -1.0 / (self.Mtot * self.denom0)
++        return B
++
++    def _solve_lqr(self, A, B, Q, R):
+         """Solve continuous-time LQR"""
+         from scipy.linalg import solve_continuous_are
+         P = solve_continuous_are(A, B, Q, R)
+         K = np.linalg.inv(R) @ B.T @ P
+         return K
+ 
++    def _get_system_phase(self, state, t):
++        """Determine current control phase based on state"""
++        x, theta, dx, dtheta = state
++        
++        # Normalize angle
++        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
++        
++        abs_theta = abs(theta)
++        abs_dtheta = abs(dtheta)
++        
++        # Check for swing-up phase (large angle, significant angular velocity)
++        if abs_theta > 1.0 or (abs_theta > 0.5 and abs_dtheta > 2.0):
++            return 'swingup'
++        
++        # Check for transition phase (moderate angle, decreasing energy)
++        if abs_theta > 0.3:
++            return 'transition'
++        
++        # Check for balancing phase (small angle, controlled motion)
++        if abs_theta > 0.1:
++            return 'balancing'
++        
++        # Fine-tuning phase (very small angle, minimal corrections needed)
++        return 'fine_tune'
++
++    def _energy_shaping_control(self, state):
++        """Energy shaping control for swing-up"""
++        x, theta, dx, dtheta = state
++        
++        # Normalize angle
++        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
++        
++        # Calculate current mechanical energy
++        T = 0.5 * self.m * (self.l * dtheta)**2  # Kinetic energy
++        V = self.m * self.g * self.l * (1 - np.cos(theta))  # Potential energy
++        E_current = T + V
++        
++        # Energy deficit (how much energy we need to add to reach upright)
++        E_deficit = self.E_upright - E_current
++        
++        # Control law: proportional to energy deficit and angular velocity
++        # This naturally drives the system toward upright by adding energy when needed
++        k_energy = 2.0
++        u_energy = k_energy * E_deficit * dtheta * np.cos(theta)
++        
++        # Add directional assistance based on which side we're on
++        u_direction = 0.0
++        if abs(theta) > np.pi/2:  # If we're on the "wrong" side
++            u_direction = 5.0 * np.sign(theta) * np.sign(dtheta)
++            
++        return u_energy + u_direction
++
++    def _predictive_compensation(self, state, base_force):
++        """Add predictive compensation based on estimated future state"""
++        x, theta, dx, dtheta = state
++        
++        # Normalize angle
++        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
++        
++        # Estimate state one step ahead using current force
++        predicted_state = simulate_pendulum_step(state, base_force, DT)
++        pred_x, pred_theta, pred_dx, pred_dtheta = predicted_state
++        
++        # If predicted angle will be worse, add corrective force
++        correction = 0.0
++        if abs(pred_theta) > abs(theta):
++            # Anticipate instability and counteract
++            correction = -20.0 * (pred_theta - theta) - 5.0 * (pred_dtheta - dtheta)
++            
++        return correction
++
+     def get_action(self, state):
+-        """Enhanced adaptive LQR with integral control and swing-up assist"""
++        """Main control function implementing phase-based control"""
+         x, theta, dx, dtheta = state
+-
+-        # Normalize angle to [-pi, pi]
++        t = 0  # In a real implementation, we'd track time steps
++        
++        # Normalize angle
+         theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+-
++        
++        # Determine current phase
++        phase = self._get_system_phase(state, t)
++        
++        # Get appropriate LQR controller for current phase
++        lqr = self.lqr_controllers[phase]
++        K = lqr['K']
++        
++        # Base LQR control
+         state_vec = np.array([x, theta, dx, dtheta])
+-        base_force = -self.K @ state_vec
+-
+-        # Smooth, differentiable gain scheduling using tanh activation
+-        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+-        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+-
+-        # Combined multiplicative gain
+-        adaptive_gain = pos_gain * vel_gain
+-        force = base_force * adaptive_gain
+-
+-        # Add swing-up assist for large angles (>0.8 rad)
+-        if abs(theta) > 0.8:
+-            # Smooth activation based on angle deviation
+-            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+-            # Normalized falling severity using angular momentum
+-            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+-            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+-            # Additive assist force
+-            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+-            force += u_swing
+-
+-        # Soft-switched integral action for cart position
+-        # Only activates when pole is nearly upright (|theta| < 0.1 rad)
+-        gate = np.tanh(12.0 * (0.1 - abs(theta)))
+-        self.integral_x += x * DT * gate
+-        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+-        force -= self.K_i * self.integral_x * gate
+-
++        base_force = -K @ state_vec
++        
++        # Apply phase-specific modifications
++        if phase == 'swingup':
++            # Use energy shaping for swing-up
++            energy_force = self._energy_shaping_control(state)
++            base_force = base_force + energy_force
++            
++            # Reset integrals during swing-up to prevent windup
++            self.integral_x = 0.0
++            self.integral_theta = 0.0
++            
++        elif phase == 'transition':
++            # Begin activating integral control
++            angle_gate = np.tanh(20.0 * (0.5 - abs(theta)))
++            self.integral_x += x * DT * angle_gate
++            self.integral_theta += theta * DT * angle_gate
++            
++            # Apply moderate integral action
++            base_force -= 0.1 * self.integral_x + 0.05 * self.integral_theta
++            
++        elif phase == 'balancing':
++            # Full integral control with windup protection
++            angle_gate = np.tanh(50.0 * (0.2 - abs(theta)))
++            self.integral_x += x * DT * angle_gate
++            self.integral_theta += theta * DT * angle_gate
++            
++            # Leakiness to prevent windup
++            self.integral_x *= 0.98
++            self.integral_theta *= 0.98
++            
++            base_force -= 0.2 * self.integral_x + 0.1 * self.integral_theta
++            
++        elif phase == 'fine_tune':
++            # Minimal integral action for fine adjustments
++            self.integral_x += x * DT * 0.1  # Very slow integration
++            self.integral_theta += theta * DT * 0.1
++            self.integral_x *= 0.99  # Gentle leakiness
++            self.integral_theta *= 0.99
++            
++            base_force -= 0.05 * self.integral_x + 0.02 * self.integral_theta
++        
++        # Add predictive compensation in all phases except swing-up
++        if phase != 'swingup':
++            predictive_force = self._predictive_compensation(state, base_force)
++            base_force += predictive_force
++        
++        # Nonlinear damping injection for oscillation suppression
++        if abs(theta) < 0.5 and abs(dtheta) > 1.0:
++            # Add damping when near upright but moving fast
++            damping = -0.5 * dtheta * abs(dtheta)  # Quadratic damping
++            base_force += damping
++        
++        # Saturation
++        force = np.clip(base_force, -100.0, 100.0)
++        
++        # Update previous state for next iteration
++        self.previous_theta = theta
++        
+         return float(force[0])
+ 
+ # Initialize controller
+ controller = Controller()
+ 
+ def get_control_action(state):
+     return float(controller.get_action(state))
+ # EVOLVE-BLOCK-END
+ 
+ def run_simulation(seed=None):
+     """
+     Runs the simulation loop.
+     """
+     if seed is not None:
+         np.random.seed(seed)
+ 
+     # Initial state: 0.4 rad (~23 degrees)
+     # 更大初始角度配合更重更长的杆子，极具挑战性
+     state = np.array([0.0, 0.9, 0.0, 0.0])
+ 
+     states = [state]
+     forces = []
+ 
+     for _ in range(MAX_STEPS):
+         force = get_control_action(state)
+         # Clip force to realistic limits
+         force = np.clip(force, -100.0, 100.0)
+ 
+         next_state = simulate_pendulum_step(state, force, DT)
+ 
+         states.append(next_state)
+         forces.append(force)
+ 
+         state = next_state
+ 
+         # # Early termination checks
+         # if np.any(np.isnan(state)):
+         #     break
+         # # Fail fast if it falls over (> 1.0 rad, matching evaluate.py)
+         # if abs(state[1]) > 1.0:
+         #     break
+ 
+     return np.array(states), np.array(forces)

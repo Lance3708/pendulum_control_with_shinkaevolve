@@ -1,0 +1,88 @@
+Based on the performance analysis, I notice our current controller achieves excellent energy efficiency but has room for improvement in stabilization time and cart positioning. The key insight is that we can enhance the swing-up phase by making it more energy-aware, which should reduce oscillations and improve settling time.
+
+<NAME>
+energy_aware_swingup_assist
+</NAME>
+
+<DESCRIPTION>
+Currently, the swing-up assist provides a fixed 8N boost when the pole angle exceeds 0.8 rad. However, this can sometimes over-assist and create unnecessary oscillations. By making the assist magnitude proportional to the energy deficit needed to reach the upright position, we can provide more precise assistance that adapts to the current system state.
+
+The energy-based approach calculates the current mechanical energy of the pendulum and compares it to the energy required at the upright position. This ensures we only provide assistance when truly needed and in proportion to the energy shortfall, leading to smoother transitions and potentially faster stabilization.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced swing-up assist with normalized falling severity
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+
+            # Normalize falling severity by natural frequency
+            angular_momentum = theta * dtheta
+            normalized_severity = angular_momentum / (L_COM * self.omega_n)
+            falling_severity = 1.0 + np.tanh(3.0 * normalized_severity)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+=======
+        # Energy-aware swing-up assist with normalized falling severity
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+
+            # Normalize falling severity by natural frequency
+            angular_momentum = theta * dtheta
+            normalized_severity = angular_momentum / (L_COM * self.omega_n)
+            falling_severity = 1.0 + np.tanh(3.0 * normalized_severity)
+
+            # Energy-based assist magnitude: proportional to energy deficit
+            current_energy = 0.5 * M_POLE * (dtheta * L_COM)**2 + M_POLE * G * L_COM * (1 - np.cos(theta))
+            target_energy = M_POLE * G * L_COM * 2.0  # Energy needed for full swing-up
+            energy_deficit = max(0.0, 1.0 - current_energy / target_energy)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity * energy_deficit
+            force = force + u_swing
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+sharper_gain_transitions
+</NAME>
+
+<DESCRIPTION>
+The current gain scheduling uses relatively gentle transitions (tanh slopes of 5.0 and 4.0). By increasing these slopes to 7.0 and 6.0, we can create sharper transitions between the aggressive swing-up phase and gentle stabilization phase. This should help reduce the time spent in intermediate regimes where control might be suboptimal, potentially shaving off a few steps from the stabilization time without increasing energy consumption.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Proven optimal gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+=======
+        # Sharper gain scheduling transitions for better phase separation
+        pos_gain = 1.0 + 0.5 * np.tanh(7.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(6.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+enhanced_angular_damping
+</NAME>
+
+<DESCRIPTION>
+While our current Q[3]=3.2 provides good damping, increasing it to 3.4 can further reduce angular velocity oscillations during stabilization. This builds on the successful pattern from previous versions that achieved similar scores with higher angular velocity penalties. The increased damping should help the system settle faster once near equilibrium, potentially improving the time bonus.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Proven optimal LQR weights from best performer (4933.93 score)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        R = np.array([[1.0]])
+=======
+        # Enhanced LQR weights with increased angular velocity damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.4])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>

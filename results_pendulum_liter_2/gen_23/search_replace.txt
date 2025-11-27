@@ -1,0 +1,31 @@
+<NAME>
+enhanced_predictive_compensation_with_cart_acceleration_coupling
+</NAME>
+
+<DESCRIPTION>
+This edit enhances the predictive momentum compensation by incorporating the pole-induced reaction force term directly into the cart acceleration estimate used for prediction. This refinement better captures the high-energy swing-up dynamics and improves divergence anticipation without adding computational overhead. The key insight is that the current predictive model doesn't fully account for how the pole's motion affects the cart's acceleration, which is crucial during aggressive swing-up maneuvers.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced predictive momentum compensation with cart coupling
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Include cart acceleration in theta acceleration estimate
+        estimated_x_acc = force[0] / self.Mtot - self.b_c * dx / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_x_acc - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+=======
+        # Enhanced predictive momentum compensation with cart coupling
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Include cart acceleration in theta acceleration estimate
+        # Add pole reaction force term: (m * l * dtheta**2 * sin(theta)) / Mtot
+        estimated_x_acc = force[0] / self.Mtot - self.b_c * dx / self.Mtot + (self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_x_acc - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+>>>>>>> REPLACE
+
+</DIFF>

@@ -1,0 +1,84 @@
+**Changes to Improve Performance:**
+
+<NAME>
+integral_gate_thresholds
+
+<DESCRIPTION>
+The current integral control uses dual gating with fixed thresholds (angle < 0.1 rad, angular velocity < 1.0 rad/s). By slightly relaxing these thresholds (angle < 0.15 rad, angular velocity < 1.2 rad/s), we allow integral action to engage earlier during stabilization. This should help reduce the stable_x_error (currently 0.09) by providing more consistent position correction during the final convergence phase, while maintaining stability through the existing gating mechanism.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+=======
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.15 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.2 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+swing_assist_boost
+
+<DESCRIPTION>
+The swing-up assist currently activates at 0.8 rad with a fixed magnitude of 8.0. By increasing the magnitude to 10.0 and adding a small boost when the pole is falling rapidly (dtheta > 2.0 rad/s), we can improve recovery from large initial angles. This should reduce stabilization time by providing more aggressive assistance when needed, while maintaining energy efficiency through the existing activation functions.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+=======
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            # Boost assist when angular velocity is high
+            velocity_boost = 1.0 + 0.3 * np.tanh(0.5 * (abs(dtheta) - 2.0))
+            u_swing = 10.0 * swing_activation * np.sign(theta) * falling_factor * velocity_boost
+            force = force + u_swing
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+predictive_compensation_tuning
+
+<DESCRIPTION>
+The predictive compensation currently uses a fixed scaling factor of 0.12. By making this factor state-dependent (increasing when angle is large and decreasing when near vertical), we can improve prediction accuracy across different phases. This enhances the controller's ability to anticipate and counteract momentum changes, particularly during critical swing phases.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        # Adaptive predictive gain: stronger when angle is large, weaker near vertical
+        adaptive_predictive_gain = 0.12 * (1.0 + 0.5 * np.tanh(3.0 * (abs(theta) - 0.3)))
+        predictive_correction = -adaptive_predictive_gain * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+>>>>>>> REPLACE
+</DIFF>

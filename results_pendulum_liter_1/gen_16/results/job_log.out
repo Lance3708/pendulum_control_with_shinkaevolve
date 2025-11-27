@@ -1,0 +1,15 @@
+Evaluating program: results_pendulum_liter/gen_16/main.py
+Saving results to: results_pendulum_liter/gen_16/results
+Run 1/1 completed in 0.02 seconds
+Correctness and error status saved to results_pendulum_liter/gen_16/results/correct.json
+Metrics saved to results_pendulum_liter/gen_16/results/metrics.json
+Evaluation or Validation failed: Validation failed: Cart moved out of bounds (>5.0m)
+Metrics:
+  combined_score: 0.0
+  public: {'score': 0.0, 'base_score': 9.852697354662528, 'time_bonus': 1.0063878837075355, 'energy_bonus': 3.445597278337136e-07, 'success_bonus': 0.0, 'stabilization_time': 1000, 'stabilization_ratio': 1.0, 'avg_energy_per_step': 0.9479118891648849, 'total_energy': 947.9118891648849, 'mean_step_reward': 0.009852697354662527, 'final_theta_error': 2.8155771740525566, 'final_x_error': 4289.72444061865, 'stable_theta_error': 2.101452780540231, 'stable_x_error': 1709.3440063272317}
+  private: {'oscillation_penalty': -0.0, 'angle_oscillation_penalty': -286.0, 'boundary_penalty': -2000.0, 'unstable_penalty': -500.0, 'max_theta': 3.139535102726658, 'max_x': 4289.72444061865, 'max_force': 100.0, 'force_std': 24.548060305271484}
+  execution_time_mean: 0.02458460499838111
+  execution_time_std: 0.0
+  num_valid_runs: 0
+  num_invalid_runs: 1
+  all_validation_errors: ['Cart moved out of bounds (>5.0m)']

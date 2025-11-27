@@ -1,0 +1,120 @@
+Looking at the performance data, I notice the current controller achieves good energy efficiency but has room for improvement in stabilization time and precision. The key insight is that the mid-swing damping applies uniformly regardless of whether the pole is moving toward or away from vertical. We can improve energy efficiency and speed by making this damping direction-aware.
+
+<NAME>
+direction_aware_midswing_damping
+
+<DESCRIPTION>
+The current mid-swing damping applies uniformly when the pole is in the 0.25-0.85 rad range. However, damping should only be applied when the pole is moving AWAY from vertical (theta * dtheta > 0), not when it's moving toward vertical (theta * dtheta < 0). This preserves energy during recovery phases while still suppressing overshoot, leading to faster stabilization and lower energy usage.
+
+This change builds on the proven Gaussian activation but adds motion-direction intelligence. When theta and dtheta have the same sign, the pole is moving away from vertical and needs damping. When they have opposite signs, the pole is already returning toward vertical and damping would waste energy.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+=======
+        # Direction-aware mid-swing angular damping
+        # Only damp when pole is moving AWAY from vertical (theta * dtheta > 0)
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85 and theta * dtheta > 0:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+adaptive_integral_gain_scheduling
+
+<DESCRIPTION>
+The current integral control uses a fixed gain (K_i=0.85) with dual gating. However, we can further improve precision by making the integral gain adaptive based on proximity to equilibrium. When the system is far from equilibrium (high angle/velocity), we should reduce integral action to prevent windup and aggressive corrections. When close to equilibrium, we can use higher integral gains for precise positioning.
+
+This change replaces the fixed K_i with a state-dependent gain that decreases during transients and increases near equilibrium. This should reduce the observed stable_x_error (0.14) without risking destabilization.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        # Adaptive integral control with state-dependent gain
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive integral gain: higher near equilibrium, lower during transients
+        K_i_adaptive = 0.85 * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.2, 0.85)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force + integral_force
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+enhanced_predictive_compensation
+
+<DESCRIPTION>
+The current predictive compensation uses a simplified theta acceleration estimate that ignores cart coupling effects. We can improve prediction accuracy by including the cart's acceleration in the angular acceleration estimate. This better captures the dynamic coupling between cart motion and pole rotation, leading to more accurate divergence prediction and earlier corrective actions.
+
+This enhancement adds the cart acceleration term to the theta acceleration estimation, making the predictive compensation more physically accurate without adding significant computational overhead.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Enhanced predictive momentum compensation with cart coupling
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Include cart acceleration in theta acceleration estimate
+        estimated_x_acc = force[0] / self.Mtot - self.b_c * dx / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_x_acc - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+>>>>>>> REPLACE
+</DIFF>

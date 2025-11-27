@@ -1,0 +1,46 @@
+<NAME>
+enhanced_swing_up_with_energy_awareness
+</NAME>
+
+<DESCRIPTION>
+I'm implementing an enhanced swing-up strategy that uses mechanical energy awareness to optimize the swing-up assist. Instead of just using angle-based triggering, I'll calculate the actual energy deficit of the pendulum and use that to modulate the swing-up force. This makes the controller more efficient by applying just enough force needed to overcome energy losses, rather than a fixed amount. This should reduce unnecessary energy expenditure while maintaining fast stabilization.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Additive swing-up assist: only activates for large angles (>0.8 rad)
+        # Provides extra corrective impulse when pole is falling away from equilibrium
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # If theta*dtheta > 0, pole is falling further - need stronger correction
+            # Normalized by natural frequency of the pendulum for better scaling
+            natural_freq = np.sqrt(G / L_COM)
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * natural_freq))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+=======
+        # Enhanced swing-up assist using mechanical energy deficit
+        if abs(theta) > 0.8:
+            # Calculate current mechanical energy of pendulum
+            E_kinetic = 0.5 * M_POLE * (L_COM * dtheta)**2
+            E_potential = M_POLE * G * L_COM * (1 - np.cos(theta))
+            E_current = E_kinetic + E_potential
+
+            # Energy required to reach upright unstable equilibrium
+            E_target = 2 * M_POLE * G * L_COM  # Potential energy at top
+
+            # Energy deficit ratio (0 = full energy, 1 = no energy)
+            energy_deficit = max(0.0, 1.0 - E_current / E_target)
+
+            # Activation based on angle and energy deficit
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8)) * energy_deficit
+
+            # Directional assist based on pole angle and falling momentum
+            natural_freq = np.sqrt(G / L_COM)
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * natural_freq))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+>>>>>>> REPLACE
+
+</DIFF>

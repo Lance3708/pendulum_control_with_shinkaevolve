@@ -1,0 +1,49 @@
+<NAME>
+sharper_gain_transitions_and_velocity_gated_integral
+</NAME>
+
+<DESCRIPTION>
+This edit combines two targeted improvements from the recommendations:
+
+1. **Sharper adaptive gain transitions**: Increase the tanh coefficients in gain scheduling from 5.0/4.0 to 7.0/6.0 for position and velocity gains respectively. This creates crisper separation between swing-up and balance modes, allowing faster deactivation of aggressive correction once near equilibrium. The current best performer achieves stabilization at 190 steps, and this sharper transition could potentially reduce it by 1-2 steps.
+
+2. **Velocity-gated integral action**: Add a multiplicative velocity gate `np.tanh(8.0 * (1.0 - abs(dtheta)))` to the integral control, suppressing integral accumulation during rapid upright crossings. This prevents transient windup when the pole swings quickly through vertical, which can cause overshoot in cart positioning. This addresses the stable_x_error of 0.05, potentially reducing it closer to the 0.03 achieved by some prior programs.
+
+These two changes work synergistically: sharper gain transitions improve the initial recovery phase timing, while velocity-gated integration improves steady-state cart centering without disrupting the proven integral action mechanism.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Proven optimal gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+=======
+        # Sharper gain scheduling with steeper transitions for crisper mode separation
+        pos_gain = 1.0 + 0.5 * np.tanh(7.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(6.0 * max(0.0, abs(dtheta) - 1.0))
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (<0.1 rad)
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive
+=======
+        # Soft-switched integral action for cart position with velocity gating
+        # Only activates when pole is nearly upright (<0.1 rad) AND moving slowly
+        # Velocity gate prevents windup during rapid transient passes through upright
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive
+>>>>>>> REPLACE
+</DIFF>

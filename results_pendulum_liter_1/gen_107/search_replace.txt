@@ -1,0 +1,87 @@
+Looking at the performance metrics, I notice the current program has slightly higher final_x_error (0.07 vs 0.03 in best performers) while maintaining excellent energy efficiency. The key opportunity is to reduce this position drift without sacrificing the excellent energy and time performance.
+
+<NAME>
+integral_anti_windup
+</NAME>
+
+<DESCRIPTION>
+The current integral action accumulates error even when the force is saturated, causing windup issues. I'm adding anti-windup protection that stops integral accumulation when the force is near saturation limits. This will prevent the integral term from building up during large transients and causing overshoot, which should reduce the final_x_error from 0.07 to near-zero while maintaining the excellent energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action on cart position
+        # Only activates when pole is nearly upright (<0.1 rad) to avoid interference
+        integral_activation = np.tanh(12.0 * (0.1 - abs(theta)))
+        self.integral_x += x * DT * integral_activation
+        force += self.k_i * self.integral_x
+=======
+        # Soft-switched integral action on cart position with anti-windup
+        # Only activates when pole is nearly upright (<0.1 rad) to avoid interference
+        integral_activation = np.tanh(12.0 * (0.1 - abs(theta)))
+
+        # Anti-windup: only accumulate integral if force is not saturated
+        current_force_magnitude = abs(force[0])
+        if current_force_magnitude < 80.0:  # Allow some headroom before saturation
+            self.integral_x += x * DT * integral_activation
+        else:
+            # Gradually decay integral when saturated to prevent windup
+            self.integral_x *= 0.95
+
+        force += self.k_i * self.integral_x
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+robust_angle_normalization
+</NAME>
+
+<DESCRIPTION>
+The current angle normalization uses modulo arithmetic which can be numerically unstable during rapid rotations. I'm replacing it with the more robust arctan2-based normalization used by the best performers. This ensures consistent angle magnitude estimation during aggressive maneuvers, improving the reliability of gain scheduling and swing-up activation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+=======
+        # Robust angle normalization using arctan2 for consistent wrapping
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+refined_swing_up_assist
+</NAME>
+
+<DESCRIPTION>
+I'm refining the swing-up assist to be more physically consistent. The current falling_severity calculation can be improved by normalizing with the pole's natural frequency, making it dimensionally correct and better scaled for the long pole. This will provide more effective assistance during large-angle recovery without increasing energy consumption.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced additive swing-up assist for large angles (>0.8 rad)
+        # Uses continuous falling-severity factor for smoother, more effective correction
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Continuous falling severity: scales from 1.0 to 2.0 based on how rapidly pole is falling
+            falling_severity = 1.0 + np.tanh(3.0 * theta * dtheta)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+=======
+        # Enhanced additive swing-up assist for large angles (>0.8 rad)
+        # Uses continuous falling-severity factor for smoother, more effective correction
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+
+            # Normalize falling severity by natural frequency for physical consistency
+            omega_n = np.sqrt(G / L_COM)  # Natural frequency of the pendulum
+            normalized_angular_momentum = (theta * dtheta) / (L_COM * omega_n)
+            falling_severity = 1.0 + np.tanh(3.0 * normalized_angular_momentum)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+>>>>>>> REPLACE
+</DIFF>

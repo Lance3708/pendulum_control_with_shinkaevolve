@@ -1,0 +1,275 @@
+import numpy as np
+
+# --- Physics Constants ---
+M_CART = 1.0       # Mass of the cart (kg)
+M_POLE = 0.35      # Mass of the pole (kg) - 更重，大幅增加控制难度
+L_POLE = 2.5       # Total length of the pole (m) - 更长，极不稳定
+L_COM = L_POLE / 2 # Length to center of mass (m)
+G = 9.81           # Gravity (m/s^2)
+FRICTION_CART = 0.35 # Coefficient of friction for cart - 高摩擦，更多能量损失
+FRICTION_JOINT = 0.25 # Coefficient of friction for joint - 高关节摩擦
+DT = 0.02          # Time step (s)
+MAX_STEPS = 1000   # 20 seconds simulation
+
+def simulate_pendulum_step(state, force, dt):
+    """
+    Simulates one time step of the Single Inverted Pendulum.
+
+    State vector: [x, theta, dx, dtheta]
+    - x: Cart position (m)
+    - theta: Pole angle (rad), 0 is upright
+    - dx: Cart velocity (m/s)
+    - dtheta: Pole angular velocity (rad/s)
+
+    Args:
+        state: numpy array of shape (4,)
+        force: scalar float, force applied to the cart (N)
+        dt: float, time step (s)
+
+    Returns:
+        next_state: numpy array of shape (4,)
+    """
+    x, theta, dx, dtheta = state
+
+    # Precompute trig terms
+    sin_theta = np.sin(theta)
+    cos_theta = np.cos(theta)
+
+    # Equations of Motion (Non-linear)
+    # derived from Lagrangian dynamics
+
+    # Total mass
+    M_total = M_CART + M_POLE
+
+    # Friction forces
+    f_cart = -FRICTION_CART * dx
+    f_joint = -FRICTION_JOINT * dtheta
+
+    # Denominator for solving linear system of accelerations
+    # Derived from solving the system:
+    # 1) (M+m)x_dd + (ml cos)theta_dd = F + f_cart + ml*theta_d^2*sin
+    # 2) (ml cos)x_dd + (ml^2)theta_dd = mgl sin + f_joint
+
+    temp = (force + f_cart + M_POLE * L_COM * dtheta**2 * sin_theta) / M_total
+
+    theta_acc = (G * sin_theta - cos_theta * temp + f_joint / (M_POLE * L_COM)) / \
+                (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / M_total))
+
+    x_acc = temp - (M_POLE * L_COM * theta_acc * cos_theta) / M_total
+
+    # Euler integration
+    next_x = x + dx * dt
+    next_theta = theta + dtheta * dt
+    next_dx = dx + x_acc * dt
+    next_dtheta = dtheta + theta_acc * dt
+
+    return np.array([next_x, next_theta, next_dx, next_dtheta])
+
+
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Hybrid Energy-LQR Controller with Adaptive Friction Compensation
+    for Extreme Inverted Pendulum Challenge.
+    """
+    
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.fc = FRICTION_CART
+        self.fj = FRICTION_JOINT
+        
+        # Control mode thresholds
+        self.energy_threshold = 0.5  # Use energy control for angles > 0.5 rad
+        self.lqr_threshold = 0.3     # Use LQR for angles < 0.3 rad
+        self.blend_range = 0.2       # Blend between modes in this range
+        
+        # Energy control parameters
+        self.k_energy = 12.0
+        self.E_desired = self.m * self.g * self.l  # Energy at upright position
+        
+        # Initialize LQR controller
+        self.setup_lqr()
+        
+        # Friction compensation
+        self.last_dx = 0.0
+        self.last_dtheta = 0.0
+        self.friction_adapt = 0.0
+        
+    def setup_lqr(self):
+        """Setup LQR controller with friction-aware linearization"""
+        m, M, l, g = self.m, self.M, self.l, self.g
+        fc, fj = self.fc, self.fj
+        
+        # Improved linearization that better matches the nonlinear dynamics
+        Mtot = M + m
+        denom = l * (4.0/3.0 - m/Mtot)
+        
+        # State matrix A (friction included)
+        A = np.array([
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [0.0, -m*g/(Mtot*denom), -fc/Mtot, 0.0],
+            [0.0, g/denom, 0.0, -fj/(m*l*l*denom)]
+        ])
+        
+        # Input matrix B
+        B = np.array([
+            [0.0],
+            [0.0],
+            [1.0/Mtot + m/(Mtot**2 * denom)],
+            [-1.0/(Mtot * denom)]
+        ])
+        
+        # Optimized LQR weights for high friction and heavy pole
+        # Increased angular velocity weight for better damping
+        Q = np.diag([4.5, 35.0, 0.6, 2.2])
+        R = np.array([[0.9]])
+        
+        # Solve LQR
+        self.K_lqr = self.solve_lqr(A, B, Q, R)
+        
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+        
+    def compute_total_energy(self, state):
+        """Compute total mechanical energy"""
+        x, theta, dx, dtheta = state
+        
+        # Potential energy (reference at upright position)
+        potential_energy = self.m * self.g * self.l * (1 - np.cos(theta))
+        
+        # Kinetic energy (cart + pole translation + rotation)
+        v_pole_x = dx + self.l * dtheta * np.cos(theta)
+        v_pole_y = -self.l * dtheta * np.sin(theta)
+        kinetic_energy = 0.5 * self.M * dx**2 + \
+                        0.5 * self.m * (v_pole_x**2 + v_pole_y**2) + \
+                        0.5 * (1/3) * self.m * (2*self.l)**2 * dtheta**2
+        
+        return potential_energy + kinetic_energy
+        
+    def energy_control(self, state):
+        """Energy-based control for large deviations"""
+        x, theta, dx, dtheta = state
+        
+        # Current total energy
+        E_current = self.compute_total_energy(state)
+        
+        # Energy error (we want to reach the upright energy level)
+        E_error = E_current - self.E_desired
+        
+        # Energy shaping control law
+        # Pump energy out when moving away from upright, in when moving toward
+        energy_term = -self.k_energy * E_error * np.sign(dtheta * np.cos(theta))
+        
+        # Add cart position stabilization
+        cart_term = -2.2 * x - 0.9 * dx
+        
+        # Enhanced friction compensation for high friction
+        friction_term = 0.18 * np.tanh(10 * dx) + 0.08 * np.tanh(6 * dtheta)
+        
+        return energy_term + cart_term + friction_term
+        
+    def lqr_control(self, state):
+        """LQR control for precise stabilization"""
+        x, theta, dx, dtheta = state
+        
+        # Normalize angle to [-pi, pi]
+        theta_norm = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        
+        state_vec = np.array([x, theta_norm, dx, dtheta])
+        force = -self.K_lqr @ state_vec
+        
+        # Velocity-dependent gain adjustment for high friction
+        speed_factor = 1.0 + 0.3 * np.exp(-2.0 * (dx**2 + dtheta**2))
+        force *= speed_factor
+        
+        return float(force[0])
+        
+    def get_action(self, state):
+        """Hybrid control strategy"""
+        x, theta, dx, dtheta = state
+        abs_theta = abs(theta)
+        
+        # Compute both control actions
+        u_energy = self.energy_control(state)
+        u_lqr = self.lqr_control(state)
+        
+        # Determine blending factor based on angle
+        if abs_theta > self.energy_threshold:
+            # Pure energy control for large angles
+            blend = 0.0
+        elif abs_theta < self.lqr_threshold:
+            # Pure LQR for small angles
+            blend = 1.0
+        else:
+            # Smooth blending in transition region
+            blend = (abs_theta - self.energy_threshold) / (self.lqr_threshold - self.energy_threshold)
+            blend = max(0.0, min(1.0, blend))
+        
+        # Blend the control actions
+        force = blend * u_lqr + (1 - blend) * u_energy
+        
+        # Adaptive friction compensation based on velocity changes
+        dx_change = abs(dx - self.last_dx)
+        dtheta_change = abs(dtheta - self.last_dtheta)
+        
+        if dx_change > 0.1 or dtheta_change > 0.1:
+            # Velocity direction changed significantly - add extra push
+            extra_comp = 1.5 * np.sign(force) * min(1.0, dx_change + dtheta_change)
+            force += extra_comp
+        
+        # Update previous velocities
+        self.last_dx = dx
+        self.last_dtheta = dtheta
+        
+        return float(force)
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    return float(controller.get_action(state))
+# EVOLVE-BLOCK-END
+
+def run_simulation(seed=None):
+    """
+    Runs the simulation loop.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Initial state: 0.4 rad (~23 degrees)
+    # 更大初始角度配合更重更长的杆子，极具挑战性
+    state = np.array([0.0, 0.9, 0.0, 0.0])
+
+    states = [state]
+    forces = []
+
+    for _ in range(MAX_STEPS):
+        force = get_control_action(state)
+        # Clip force to realistic limits
+        force = np.clip(force, -100.0, 100.0)
+
+        next_state = simulate_pendulum_step(state, force, DT)
+
+        states.append(next_state)
+        forces.append(force)
+
+        state = next_state
+
+        # # Early termination checks
+        # if np.any(np.isnan(state)):
+        #     break
+        # # Fail fast if it falls over (> 1.0 rad, matching evaluate.py)
+        # if abs(state[1]) > 1.0:
+        #     break
+
+    return np.array(states), np.array(forces)

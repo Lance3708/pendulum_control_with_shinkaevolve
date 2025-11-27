@@ -1,0 +1,92 @@
+<NAME>
+add_cart_vel_cross_coupling
+</NAME>
+
+<DESCRIPTION>
+Add mild symmetric off-diagonal Q-matrix cross-coupling between cart position (index 0) and cart velocity (index 2) with value 0.15. This physically-informed adjustment penalizes correlated position-velocity deviations, exploiting the inherent coupling in cart dynamics (correcting x induces dx). Prior diagonal Q ignores this, leading to suboptimal steady-state cart centering. Expected to reduce stable_x_error below 0.03, boosting base_score while preserving time/energy bonuses. Complements integral action without retuning.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights with enhanced angular velocity damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])  # Q[3] increased from 3.2 to 3.28
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights with enhanced angular velocity damping and x-dx cross-coupling
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])  # Q[3] increased from 3.2 to 3.28
+        Q[0, 2] = 0.15
+        Q[2, 0] = 0.15
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_adaptive_integral_state
+</NAME>
+
+<DESCRIPTION>
+Introduce integral state and gain for cart position error accumulation, as in prior best-scoring variant (4927). Placed after omega_n for logical grouping. Enables zero steady-state x error, improving base_score and enabling tighter final settling for time_bonus. K_i=0.8 tuned from prior.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Precompute natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+=======
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Precompute natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Integral control parameters for zero steady-state cart error
+        self.integral_x = 0.0
+        self.K_i = 0.8
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+implement_adaptive_leak_integral
+</NAME>
+
+<DESCRIPTION>
+Append proven soft-switched integral control after swing-up block, activating smoothly via tanh gate when |theta| < 0.1 rad (upright). Integral updates only when gate > 0.1 to avoid noise; otherwise, applies NOVEL adaptive exponential leak 0.95^(1 + 5*tanh(8*|theta|)), aggressively decaying (~0.73 at |theta|>0.2) during swing-up to suppress windup/overshoot, gently (~0.93 at |theta|<0.02) near equilibrium. Builds on prior 4927-score integral (fixed 0.95 leak) for faster x-centering, reduced stabilization_time (target <191 steps), higher time_bonus. force[0] handling preserved.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Normalize falling severity by natural frequency for physical consistency
+            angular_momentum = theta * dtheta
+            normalized_severity = angular_momentum / (L_COM * self.omega_n)
+            falling_severity = 1.0 + np.tanh(3.0 * normalized_severity)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+
+        return float(force[0])
+=======
+            # Normalize falling severity by natural frequency for physical consistency
+            angular_momentum = theta * dtheta
+            normalized_severity = angular_momentum / (L_COM * self.omega_n)
+            falling_severity = 1.0 + np.tanh(3.0 * normalized_severity)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+
+        # Soft-switched adaptive integral for precise cart centering
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+        else:
+            leak_exp = 1.0 + 5.0 * np.tanh(8.0 * abs(theta))
+            self.integral_x *= (0.95 ** leak_exp)
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

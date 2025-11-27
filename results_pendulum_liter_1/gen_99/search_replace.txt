@@ -1,0 +1,218 @@
+<NAME>
+adaptive_lqr_with_integral_action
+</NAME>
+
+<DESCRIPTION>
+I'm implementing integral action on cart position to eliminate the steady-state error (currently 0.03m) while maintaining stability. The integral term is softly activated only when the system is near upright (|theta| < 0.1) to avoid interference during swing-up. This should improve the success bonus by achieving perfect cart positioning without compromising the fast stabilization time or energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Suboptimal LQR Controller for Single Inverted Pendulum Stabilization.
+    次优LQR控制器 - 能稳住，但参数故意调得"懒惰"。
+
+    特点：
+    1. 物理环境更难（杆更长更重，摩擦更大）。
+    2. Q矩阵参数较小：对误差容忍度高 -> 精度分低。
+    3. R矩阵参数较大：不愿用大力 -> 响应慢，时间分低。
+
+    目标：初始分数 ~3000 分，进化后可达 9000+ 分。
+    """
+
+    def __init__(self):
+        # 系统参数
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Friction-aware linearized A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3)
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: aggressive angular control with strong damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        R = np.array([[1.0]])
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+
+    def solve_lqr(self, A, B, Q, R):
+        """求解连续时间LQR问题"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR with multiplicative gain scheduling and swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Proven optimal gain scheduling: smooth tanh activation with multiplicative combination
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Multiplicative combination compounds effect when both errors are large
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist for large angles (>0.8 rad)
+        # Provides extra corrective impulse when pole is falling away from equilibrium
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # If theta*dtheta > 0, pole is falling further - need stronger correction
+            falling_factor = 1.0 + 0.5 * float(theta * dtheta > 0)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        return float(force[0])
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    return float(controller.get_action(state))
+# EVOLVE-BLOCK-END
+=======
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Suboptimal LQR Controller for Single Inverted Pendulum Stabilization.
+    次优LQR控制器 - 能稳住，但参数故意调得"懒惰"。
+
+    特点：
+    1. 物理环境更难（杆更长更重，摩擦更大）。
+    2. Q矩阵参数较小：对误差容忍度高 -> 精度分低。
+    3. R矩阵参数较大：不愿用大力 -> 响应慢，时间分低。
+
+    目标：初始分数 ~3000 分，进化后可达 9000+ 分。
+    """
+
+    def __init__(self):
+        # 系统参数
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Friction-aware linearized A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3)
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: aggressive angular control with strong damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        R = np.array([[1.0]])
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral action state
+        self.integral_x = 0.0
+
+    def solve_lqr(self, A, B, Q, R):
+        """求解连续时间LQR问题"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR with multiplicative gain scheduling and swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Update integral of cart position with soft gating
+        # Only integrate when near upright to avoid windup during swing-up
+        gate = np.tanh(12.0 * (0.1 - abs(theta)))  # Sharp activation around |theta| < 0.1
+        self.integral_x += x * DT * gate
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Proven optimal gain scheduling: smooth tanh activation with multiplicative combination
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Multiplicative combination compounds effect when both errors are large
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Add integral action (only active near upright)
+        ki = 0.8  # Integral gain
+        force -= ki * self.integral_x * gate
+
+        # Additive swing-up assist for large angles (>0.8 rad)
+        # Provides extra corrective impulse when pole is falling away from equilibrium
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # If theta*dtheta > 0, pole is falling further - need stronger correction
+            falling_factor = 1.0 + 0.5 * float(theta * dtheta > 0)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        return float(force[0])
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    return float(controller.get_action(state))
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+
+</DIFF>

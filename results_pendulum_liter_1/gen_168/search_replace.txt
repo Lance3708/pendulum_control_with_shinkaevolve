@@ -1,0 +1,54 @@
+<NAME>sharper_gain_scheduling</NAME>
+<DESCRIPTION>Match the gain scheduling steepness from the highest-scoring prior (4934.54 at 190 steps): increase pos_gain tanh steepness from 5.0 to 7.0 and vel_gain from 4.0 to 6.0. Sharper transitions enable more aggressive response during transients while preserving precise near-equilibrium behavior, directly reducing stabilization_time to 190 steps and boosting time_bonus.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Proven optimal gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+=======
+        # Proven optimal gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(7.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(6.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_cross_coupling_q_matrix</NAME>
+<DESCRIPTION>Add static cross-coupling terms to the Q-matrix (Q[0,2]=Q[2,0]=0.12, Q[1,3]=Q[3,1]=0.8) to penalize position-velocity and angle-angular velocity correlations. This enhances inter-state coordination and damping, leveraging physical energy-like penalties for improved stability quality and base_score, as recommended for extending prior high-performers.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced LQR weights with improved angular velocity damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])  # Q[3] increased from 3.2 to 3.28
+        R = np.array([[1.0]])
+=======
+        # Enhanced LQR weights with improved angular velocity damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])  # Q[3] increased from 3.2 to 3.28
+        Q[0, 2] = Q[2, 0] = 0.12
+        Q[1, 3] = Q[3, 1] = 0.8
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_mid_swing_angular_damping</NAME>
+<DESCRIPTION>Add phase-specific angular damping -8.0 * dtheta * (1 - np.tanh(4.0 * (abs(theta) - 0.5))) active primarily below ~0.7 rad (peaking at low angles, fading in mid-swing). This suppresses angular momentum overshoot during the critical transition from swing-up to LQR stabilization, where the heavy pole's inertia causes peak transient energy—targeting 1-3 step reduction in stabilization_time while preserving low energy use.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+=======
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        # Mid-swing angular damping to suppress momentum overshoot
+        midswing_mult = 1.0 - np.tanh(4.0 * (abs(theta) - 0.5))
+        damp_force = -8.0 * dtheta * midswing_mult
+        force += damp_force
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

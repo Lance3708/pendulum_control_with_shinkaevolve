@@ -1,0 +1,143 @@
+Based on the performance analysis, I notice the current controller has good energy efficiency but could improve stabilization time. The key opportunity is to enhance the LQR gain scheduling for faster convergence while maintaining precision. Here's my targeted improvement:
+
+<NAME>
+refine_lqr_gain_scheduling
+</NAME>
+
+<DESCRIPTION>
+The current controller uses a piecewise gain scheduling that abruptly increases control authority when |theta| > 0.6. This creates potential discontinuities and doesn't fully leverage the system's dynamics. I propose replacing this with a smooth, continuous gain modulation using a hyperbolic tangent function. This provides:
+1. Smooth transitions between control regimes
+2. More aggressive control for larger angles while maintaining stability
+3. Better handling of the challenging heavy/long pole configuration
+
+Additionally, I'll slightly adjust the LQR weights to penalize angular velocity more heavily, which should reduce oscillation decay time without sacrificing energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """改进的LQR控制法则: u = -K * x，带自适应增益调节和非线性摩擦补偿"""
+        x, theta, dx, dtheta = state
+
+        # 角度归一化到[-π, π]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # 基础LQR控制律
+        force = -self.K_base @ state_vec
+
+        # 非线性摩擦补偿项
+        # 使用双曲正切函数平滑地近似符号函数，避免在零点处的不连续性
+        friction_compensation = 0.1 * np.tanh(10 * dx) + 0.05 * np.tanh(5 * dtheta)
+        force += friction_compensation
+
+        # 对大角度偏差应用增益调度
+        if abs(theta) > 0.6:
+            force *= self.high_gain_factor * (1.0 + 0.5 * (abs(theta) - 0.6))
+
+        # 限制控制力在物理可行范围内
+        force = np.clip(force, -100.0, 100.0)
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """改进的LQR控制法则: u = -K * x，带平滑自适应增益调节和精确摩擦补偿"""
+        x, theta, dx, dtheta = state
+
+        # 角度归一化到[-π, π]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # 基础LQR控制律
+        force = -self.K_base @ state_vec
+
+        # 精确非线性摩擦补偿项
+        # 针对高摩擦环境优化补偿强度
+        friction_compensation = 0.12 * np.tanh(8 * dx) + 0.06 * np.tanh(4 * dtheta)
+        force += friction_compensation
+
+        # 平滑增益调度：使用tanh函数实现连续过渡
+        # 在角度较大时更激进，接近平衡点时更温和
+        angle_magnitude = abs(theta)
+        gain_modulation = 1.0 + 0.8 * np.tanh(3.0 * (angle_magnitude - 0.5))
+        force *= gain_modulation
+
+        # 限制控制力在物理可行范围内
+        force = np.clip(force, -100.0, 100.0)
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+optimize_lqr_weights
+</NAME>
+
+<DESCRIPTION>
+The current LQR weights work well but could be further optimized for the specific challenge of a heavy, long pole. By slightly increasing the penalty on angular velocity (dtheta), we can achieve faster damping of oscillations without significantly increasing energy consumption. This adjustment specifically targets the stabilization time bonus while maintaining the excellent energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # 优化的LQR权重矩阵
+        # 增加对角度和角速度的权重以提高精度
+        # 减小对控制输入的惩罚以允许更快响应
+        Q = np.diag([5.0, 30.0, 0.5, 2.0])    # [x, theta, dx, dtheta]
+        R = np.array([[1.0]])                 # 控制力惩罚适度
+=======
+        # 优化的LQR权重矩阵
+        # 针对重长杆挑战调整：增加角速度权重以加速振荡衰减
+        Q = np.diag([5.0, 32.0, 0.5, 2.8])    # [x, theta, dx, dtheta] - 增加theta和dtheta权重
+        R = np.array([[0.95]])                 # 略微降低控制惩罚以允许稍强响应
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+improve_linearization_accuracy
+</NAME>
+
+<DESCRIPTION>
+The current linearization uses a simplified model that doesn't fully capture the system's complex dynamics, particularly for the heavy pole configuration. I'm implementing a more accurate linearization that better accounts for the pole mass distribution and friction effects. This should improve the baseline LQR performance and make the gain scheduling more effective.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # 改进的线性化状态空间模型，包含摩擦近似
+        # 在平衡点线性化摩擦项，使用符号函数的一阶近似
+        A = np.array([
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, -(m*g)/M, -FRICTION_CART/M, 0],
+            [0, (m+M)*g/(M*l), 0, -FRICTION_JOINT/(M*l*l)]
+        ])
+
+        B = np.array([
+            [0],
+            [0],
+            [1/M],
+            [-1/(M*l)]
+        ])
+=======
+        # 精确线性化状态空间模型，针对重长杆和高摩擦环境优化
+        Mtot = M + m
+        denom = l * (4.0/3.0 - m * cos_theta**2 / Mtot)  # 匹配非线性动力学的分母项
+
+        # 在平衡点(theta=0)精确线性化
+        A = np.array([
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, -m*g/Mtot, -FRICTION_CART/Mtot, 0],
+            [0, (Mtot*g)/(Mtot*l), 0, -FRICTION_JOINT/(m*l**2)]
+        ])
+
+        # 精确输入矩阵，考虑杆质量对系统惯性的影响
+        B = np.array([
+            [0],
+            [0],
+            [1.0/Mtot + m/(Mtot**2 * (4.0/3.0 - m/Mtot))],
+            [-1.0/(Mtot * l * (4.0/3.0 - m/Mtot))]
+        ])
+>>>>>>> REPLACE
+</DIFF>

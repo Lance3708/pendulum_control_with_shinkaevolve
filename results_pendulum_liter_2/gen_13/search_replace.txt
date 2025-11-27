@@ -1,0 +1,51 @@
+<NAME>
+predictive_acceleration_enhancement
+</NAME>
+
+<DESCRIPTION>
+The current controller uses a simplified gravity-dominated estimate for angular acceleration in its predictive compensation term. However, this neglects the significant effect of cart acceleration on pole dynamics—especially critical given the long (2.5m), heavy (0.35kg) rod and high friction.
+
+We enhance the prediction by incorporating the coupling term `(dx_dot * cos(theta)) / L_COM`, which represents how horizontal cart acceleration directly induces angular acceleration on the pole. Since we don't have direct access to `dx_dot`, we estimate it using the known control force, system mass, and friction.
+
+This improves early counteraction during aggressive maneuvers, particularly during swing-up and mid-swing phases, leading to faster stabilization with less corrective effort—directly boosting both time and energy bonuses.
+
+This change aligns with Challenge D: The Predictor, and avoids all forbidden terms/methods while enhancing an existing predictive mechanism.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+=======
+        # Predictive momentum compensation with full dynamic coupling
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Estimate cart acceleration from applied force (ignoring higher-order terms)
+        estimated_x_acc = force[0] / self.Mtot - self.b_c * dx / self.Mtot
+
+        # Full theta acceleration estimate including cart coupling
+        theta_acc_est = (self.g * sin_theta
+                        - (cos_theta * estimated_x_acc)
+                        - self.b_j * dtheta / (self.m * self.l)) \
+                       / (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+>>>>>>> REPLACE
+</DIFF>

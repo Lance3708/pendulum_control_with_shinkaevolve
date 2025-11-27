@@ -1,0 +1,172 @@
+<NAME>
+lqr_with_integral_action
+</NAME>
+
+<DESCRIPTION>
+This change introduces an integral action to the LQR controller by augmenting the state space with the integral of the cart position. This helps eliminate steady-state errors in cart positioning, which is crucial for achieving the highest possible score. The integral state is included in the LQR formulation with a small weight to avoid destabilizing the system while still providing the benefits of integral control.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class Controller:
+    """
+    Advanced Adaptive LQR Controller with Optimized Gain Scheduling
+    Combines physically accurate friction modeling with refined adaptive gains
+    for maximum performance on the challenging pendulum setup.
+    """
+
+    def __init__(self):
+        # System parameters
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Physically accurate linearized A matrix with corrected joint friction
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3) - using corrected joint friction term matching simulator
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)  # Matches simulator: f_joint/(m*l) / denom0
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: increased penalties for even faster convergence
+        Q = np.diag([4.5, 46.0, 0.7, 3.5])  # Increased angular and damping penalties
+        R = np.array([[1.0]])
+
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR control with refined smooth gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Enhanced position-based gain with earlier activation and steeper transition
+        pos_gain = 1.0 + 0.5 * (np.tanh(5.0 * (abs(theta) - 0.4)) + 1.0) * 0.5
+
+        # Enhanced velocity-based gain for better high-speed response
+        vel_gain = 1.0 + 0.35 * (np.tanh(4.0 * (abs(dtheta) - 0.65)) + 1.0) * 0.5
+
+        # Improved error-mode blending with better numerical conditioning
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.35 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+class Controller:
+    """
+    Advanced Adaptive LQR Controller with Integral Action and Optimized Gain Scheduling
+    Combines physically accurate friction modeling with refined adaptive gains and integral control
+    for maximum performance on the challenging pendulum setup.
+    """
+
+    def __init__(self):
+        # System parameters
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Physically accurate linearized A matrix with corrected joint friction
+        # Extended to 5x5 for integral action
+        A = np.zeros((5, 5))
+        A[0, 2] = 1.0  # x_dot = dx
+        A[1, 3] = 1.0  # theta_dot = dtheta
+        A[4, 0] = 1.0  # integral_x_dot = x
+
+        # theta_acc row (3) - using corrected joint friction term matching simulator
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)  # Matches simulator: f_joint/(m*l) / denom0
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix (5x1)
+        B = np.zeros((5, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: increased penalties for even faster convergence
+        # Added weight for integral state
+        Q = np.diag([4.5, 46.0, 0.7, 3.5, 0.1])  # Added integral state weight
+        R = np.array([[1.0]])
+
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+        self.integral_x = 0.0  # Initialize integral state
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR control with integral action and refined smooth gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Update integral state
+        self.integral_x += x * DT
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Extended state vector with integral action
+        state_vec = np.array([x, theta, dx, dtheta, self.integral_x])
+        base_force = -self.K @ state_vec
+
+        # Enhanced position-based gain with earlier activation and steeper transition
+        pos_gain = 1.0 + 0.5 * (np.tanh(5.0 * (abs(theta) - 0.4)) + 1.0) * 0.5
+
+        # Enhanced velocity-based gain for better high-speed response
+        vel_gain = 1.0 + 0.35 * (np.tanh(4.0 * (abs(dtheta) - 0.65)) + 1.0) * 0.5
+
+        # Improved error-mode blending with better numerical conditioning
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.35 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+>>>>>>> REPLACE
+
+</DIFF>

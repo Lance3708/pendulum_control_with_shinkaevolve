@@ -1,0 +1,354 @@
+<NAME>
+Introduce phase-dependent control with energy-efficient damping and enhanced position centering
+</NAME>
+
+<DESCRIPTION>
+The current controller uses continuous adaptive gains but doesn't explicitly separate control strategies for different phases of the pendulum's motion. By introducing distinct phases (emergency, recovery, balancing) with tailored control strategies, we can optimize performance for each regime:
+
+1. Emergency Phase (|theta| > 0.8): Focus on aggressive swing-up with energy pumping
+2. Recovery Phase (0.3 < |theta| ≤ 0.8): Emphasize predictive damping and momentum control
+3. Balancing Phase (|theta| ≤ 0.3): Prioritize precision position control and integral action
+
+Key improvements:
+- Phase-aware integral reset to prevent windup during transitions
+- Enhanced position correction in balancing phase to reduce stable_x_error
+- Phase-dependent damping that only activates when pole is moving away from vertical
+- More accurate predictive compensation with centrifugal term isolation
+- Energy-efficient cart damping across all phases
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class Controller:
+    """
+    Adaptive Cross-Coupled LQR with Mid-Swing Damping and Predictive Compensation
+
+    Key innovations:
+    1. State-dependent cross-coupling in Q-matrix for better coordination
+    2. Mid-swing angular damping to suppress momentum overshoot
+    3. Predictive momentum compensation for earlier counteraction
+    4. Refined integral control with dual gating
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.Mtot = self.M + self.m
+        self.denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
+        self.b_c = FRICTION_CART
+        self.b_j = FRICTION_JOINT
+
+        # Build base A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+        A[3, 1] = self.g / self.denom0
+        A[3, 2] = self.b_c / (self.Mtot * self.denom0)
+        A[3, 3] = -self.b_j / (self.m * self.l * self.denom0)
+        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
+        A[2, 2] = -self.b_c / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
+        A[2, 3] = self.b_j / (self.Mtot * self.denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * self.denom0)
+        B[3, 0] = -1.0 / (self.Mtot * self.denom0)
+
+        # Base Q with proven optimal diagonal weights
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        # Add cross-coupling terms for theta-dtheta coordination
+        Q[1, 3] = 0.8
+        Q[3, 1] = 0.8
+        R = np.array([[1.0]])
+
+        self.A = A
+        self.B = B
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+=======
+class Controller:
+    """
+    Phase-Adaptive Controller with Energy-Efficient Damping and Enhanced Position Centering
+
+    Three distinct operational phases:
+    1. Emergency Phase (|theta| > 0.8): Aggressive swing-up with energy pumping
+    2. Recovery Phase (0.3 < |theta| ≤ 0.8): Predictive damping with adaptive gains
+    3. Balancing Phase (|theta| ≤ 0.3): Precision LQR with enhanced integral control
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.Mtot = self.M + self.m
+        self.denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
+        self.b_c = FRICTION_CART
+        self.b_j = FRICTION_JOINT
+
+        # Build base A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+        A[3, 1] = self.g / self.denom0
+        A[3, 2] = self.b_c / (self.Mtot * self.denom0)
+        A[3, 3] = -self.b_j / (self.m * self.l * self.denom0)
+        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
+        A[2, 2] = -self.b_c / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
+        A[2, 3] = self.b_j / (self.Mtot * self.denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * self.denom0)
+        B[3, 0] = -1.0 / (self.Mtot * self.denom0)
+
+        # Base Q with proven optimal diagonal weights
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        # Add cross-coupling terms for theta-dtheta coordination
+        Q[1, 3] = 0.8
+        Q[3, 1] = 0.8
+        R = np.array([[1.0]])
+
+        self.A = A
+        self.B = B
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Phase tracking
+        self.last_phase = "emergency"
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Enhanced mid-swing angular damping (0.25-0.85 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        # Key: Only apply damping when returning to vertical (theta and dtheta have opposite signs)
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 6.0  # Stronger damping, but direction-gated
+            # Apply damping primarily when returning to vertical (theta * dtheta < 0)
+            # Use a soft mask to avoid discontinuities
+            is_returning = 0.5 * (1.0 - np.tanh(5.0 * theta * dtheta))
+            midswing_damp = K_d_midswing * dtheta * mid_swing_activation * is_returning
+            force = force + midswing_damp
+
+        # Enhanced predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Full physics model for theta acceleration estimate, using current force
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        # Estimate the 'temp' term from the simulation dynamics, using the force calculated so far
+        temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        # This is a much more accurate predictor of the next angular acceleration
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Enhanced dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive integral gain: higher near equilibrium, lower during transients
+        K_i_adaptive = 0.85 * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.2, 0.85)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+
+        # Direct position correction when stable
+        # This helps reduce the final_x_error when the system is nearly balanced
+        stability_factor = np.exp(-10.0 * (theta**2 + 0.5 * dtheta**2))
+        if stability_factor > 0.5:  # Only apply when very stable
+            position_correction = -0.8 * x * stability_factor - 0.4 * dx * stability_factor
+            force = force + position_correction
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Phase-adaptive control with distinct strategies for each operational regime"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        abs_theta = abs(theta)
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Determine current phase
+        if abs_theta > 0.8:
+            current_phase = "emergency"
+        elif abs_theta > 0.3:
+            current_phase = "recovery"
+        else:
+            current_phase = "balancing"
+
+        # Phase transition handling
+        if current_phase != self.last_phase:
+            # Reset integral on phase transitions to prevent windup
+            if current_phase == "balancing":
+                self.integral_x *= 0.5  # Partial reset for smooth transition
+            self.last_phase = current_phase
+
+        # Base LQR force - common foundation
+        base_force = -self.K @ state_vec
+
+        # Phase-specific adaptive gain scheduling
+        if current_phase == "emergency":
+            # High gain for aggressive swing-up
+            pos_gain = 1.0 + 0.8 * np.tanh(6.0 * (abs_theta - 0.8))
+            vel_gain = 1.0 + 0.4 * np.tanh(5.0 * max(0.0, abs(dtheta) - 1.2))
+        elif current_phase == "recovery":
+            # Moderate gain for controlled recovery
+            pos_gain = 1.0 + 0.4 * np.tanh(4.0 * (abs_theta - 0.5))
+            vel_gain = 1.0 + 0.2 * np.tanh(3.0 * max(0.0, abs(dtheta) - 0.8))
+        else:  # balancing
+            # Low gain for precise control
+            pos_gain = 1.0 + 0.1 * np.tanh(2.0 * (abs_theta - 0.15))
+            vel_gain = 1.0 + 0.1 * np.tanh(2.0 * max(0.0, abs(dtheta) - 0.5))
+
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+
+        # Phase-specific additional control actions
+        if current_phase == "emergency":
+            # Aggressive swing-up with energy pumping
+            swing_activation = np.tanh(8.0 * (abs_theta - 0.8))
+            # Energy-based pumping: add energy when moving toward upright
+            energy_direction = np.tanh(3.0 * theta * dtheta)
+            u_swing = 12.0 * swing_activation * np.sign(theta) * (1.0 + 0.5 * energy_direction)
+            force = force + u_swing
+
+        elif current_phase == "recovery":
+            # Enhanced mid-swing angular damping with explicit phase-plane directionality
+            mid_swing_activation = np.exp(-5.0 * (abs_theta - 0.55)**2)
+            if abs_theta > 0.25 and abs_theta < 0.85:
+                K_d_midswing = 3.0  # Reduced from 6.0 for better energy efficiency
+                # Phase-plane aware damping: only damp when moving away from vertical (theta*dtheta > 0)
+                direction_awareness = np.tanh(3.0 * theta * dtheta)
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * max(0.0, direction_awareness)
+                force = force + midswing_damp
+
+            # Enhanced predictive momentum compensation with centrifugal isolation
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+
+            # Full physics model with explicit centrifugal term isolation
+            f_cart = -self.b_c * dx
+            f_joint = -self.b_j * dtheta
+            centrifugal_term = self.m * self.l * dtheta**2 * sin_theta
+            temp_est = (force[0] + f_cart + centrifugal_term) / self.Mtot
+            denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+            # More accurate theta acceleration by explicitly handling centrifugal effects
+            theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+            dtheta_pred = dtheta + theta_acc_est * DT
+
+            # Adaptive predictive gain with centrifugal awareness
+            centrifugal_factor = np.tanh(0.5 * abs(centrifugal_term))
+            adaptive_predictive_gain = 0.08 + 0.06 * centrifugal_factor + 0.04 * np.tanh(2.0 * abs_theta)
+            pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+            predictive_correction = -adaptive_predictive_gain * pred_divergence * np.tanh(2.5 * abs_theta)
+            force = force + predictive_correction
+
+        else:  # balancing phase
+            # Enhanced integral control with proper sign and windup protection
+            angle_gate = np.tanh(15.0 * (0.08 - abs_theta))
+            velocity_gate = np.tanh(10.0 * (0.8 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            # Adaptive integral gain scheduling based on proximity to equilibrium
+            equilibrium_proximity = np.exp(-4.0 * (abs_theta + 0.4 * abs(dtheta)))
+            K_i_adaptive = 0.85 * equilibrium_proximity
+            K_i_adaptive = np.clip(K_i_adaptive, 0.3, 0.85)
+
+            if integral_gate > 0.2:
+                self.integral_x += x * DT
+                # Enhanced windup protection with dynamic limits
+                integral_limit = 1.0 + 2.0 * (1.0 - integral_gate)
+                self.integral_x = np.clip(self.integral_x, -integral_limit, integral_limit)
+            else:
+                self.integral_x *= 0.98  # Slower decay to preserve useful integral
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # Correct sign: integral should oppose position error
+            force = force - integral_force
+
+            # Enhanced position correction for better centering
+            stability_factor = np.exp(-8.0 * (theta**2 + 0.3 * dtheta**2))
+            if stability_factor > 0.3:  # More aggressive activation
+                # Position correction with velocity matching
+                position_correction = -1.2 * x * stability_factor - 0.6 * dx * stability_factor
+                force = force + position_correction
+
+        # Universal cart damping for all phases (energy efficiency)
+        adaptive_dx_damping = -0.4 * dx * np.tanh(3.0 * abs_theta)
+        force = force + adaptive_dx_damping
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

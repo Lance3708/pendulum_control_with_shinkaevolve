@@ -1,0 +1,77 @@
+<NAME>
+predictive_momentum_compensation
+</NAME>
+
+<DESCRIPTION>
+The current controller uses reactive control based on current state, but misses opportunities to anticipate future instability. For a long pole (2.5m) with high inertia, the system's momentum creates significant prediction horizons where early intervention prevents large deviations.
+
+I propose adding predictive momentum compensation by estimating next-step angular momentum using a short-horizon forecast. This leverages the insight that when |theta| > 0.3 rad, the dominant destabilizing factor is not current angle but predicted momentum buildup.
+
+The implementation:
+1. Estimates future theta and dtheta after DT seconds using current acceleration
+2. Computes predicted angular momentum as theta_future * dtheta
+3. Adds corrective term scaled by -0.15 * predicted_momentum / (omega_n * L_COM)
+4. Only activates during mid-swing (0.3 < |theta| < 0.8) where prediction adds value
+
+This differs from swing-up assist by focusing on transition phase stabilization rather than initial recovery, reducing overshoot and shortening settling time.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Reference energy for swing-up scaling
+        self.E_ref = M_POLE * G * L_COM
+=======
+        # Natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Reference energy for swing-up scaling
+        self.E_ref = M_POLE * G * L_COM
+
+        # Prediction horizon for proactive control
+        self.prediction_dt = DT
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Normalized falling severity
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity * energy_scale
+            force += u_swing
+=======
+            # Normalized falling severity
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity * energy_scale
+            force += u_swing
+
+        # Predictive momentum compensation during mid-swing transition
+        if 0.3 < abs(theta) < 0.8:
+            # Estimate near-future angular dynamics
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+            Mtot = M_CART + M_POLE
+            denom0 = L_COM * (4.0/3.0 - M_POLE / Mtot)
+
+            # Simplified acceleration estimate (assuming zero input)
+            temp = (M_POLE * L_COM * dtheta**2 * sin_theta) / Mtot
+            theta_acc_pred = (G * sin_theta - cos_theta * temp) / denom0
+
+            # Predict future angle
+            theta_future = theta + dtheta * self.prediction_dt + 0.5 * theta_acc_pred * self.prediction_dt**2
+
+            # Compute predictive momentum term
+            predicted_momentum = theta_future * dtheta
+            norm_predicted_momentum = predicted_momentum / (self.omega_n * L_COM)
+
+            # Proactive correction to counteract predicted instability
+            predictive_correction = -0.15 * norm_predicted_momentum
+            force += predictive_correction
+>>>>>>> REPLACE
+</DIFF>

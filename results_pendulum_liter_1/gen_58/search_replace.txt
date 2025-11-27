@@ -1,0 +1,87 @@
+Based on the performance analysis, I propose a targeted improvement that combines the best elements from previous successful controllers. The key insight is that the highest-scoring program (4920.14) used a specific Q-matrix [4.5, 44.0, 0.6, 3.2] with multiplicative adaptive gains, while maintaining excellent energy efficiency. Let's implement this proven combination with slight refinements.
+
+<NAME>
+optimized_q_and_multiplicative_gains
+</NAME>
+
+<DESCRIPTION>
+Revert to the proven Q-matrix weights [4.5, 44.0, 0.6, 3.2] from the best-performing program (4920.14) while maintaining the current physics-accurate linearization. Replace the weighted-sum adaptive gain with multiplicative gains that showed superior performance. This combination achieved the fastest stabilization time (192 steps) while maintaining excellent energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: increased penalties for even faster convergence
+        Q = np.diag([4.5, 46.0, 0.7, 3.5])  # Increased angular and damping penalties
+        R = np.array([[1.0]])
+
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR control with refined smooth gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Enhanced position-based gain with earlier activation and steeper transition
+        pos_gain = 1.0 + 0.5 * (np.tanh(5.0 * (abs(theta) - 0.4)) + 1.0) * 0.5
+
+        # Enhanced velocity-based gain for better high-speed response
+        vel_gain = 1.0 + 0.35 * (np.tanh(4.0 * (abs(dtheta) - 0.65)) + 1.0) * 0.5
+
+        # Improved error-mode blending with better numerical conditioning
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.35 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+        # Optimized LQR weights: reverted to best-performing Q matrix
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])  # From best program (4920.14)
+        R = np.array([[1.0]])
+
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR control with multiplicative gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

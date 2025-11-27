@@ -1,0 +1,70 @@
+<NAME>
+optimized_lqr_weights_with_adaptive_gain
+</NAME>
+
+<DESCRIPTION>
+The current best-performing program (score 4878.27) uses Q = [4.0, 38.0, 0.5, 3.0] with smooth tanh-based adaptive gain scheduling. The current program uses Q = [5.0, 30.0, 0.5, 2.0] without adaptive gains and achieves 3945.50.
+
+Key improvements:
+1. Update Q weights to match the best performer: increase theta weight to 38.0 and dtheta weight to 3.0 for faster oscillation damping
+2. Add the smooth tanh-based adaptive gain scheduling that proved successful - this provides extra control authority at large deviations while maintaining smoothness
+3. The physics model is already correct (matching the best performer's validated A/B matrices)
+
+This combination should achieve similar or better results than the current best by:
+- Stronger angular penalty (Q[1]=38) accelerates angle correction
+- Higher dtheta damping (Q[3]=3.0) reduces oscillations faster
+- Smooth adaptive gains (tanh-based) provide extra force when needed without discontinuities
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: higher precision/speed, moderate effort
+        Q = np.diag([5.0, 30.0, 0.5, 2.0])
+        R = np.array([[1.0]])
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # Optimized LQR weights: aggressive angular correction with strong damping
+        # Q[1]=38.0 for fast angle correction, Q[3]=3.0 for oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.0])
+        R = np.array([[1.0]])
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

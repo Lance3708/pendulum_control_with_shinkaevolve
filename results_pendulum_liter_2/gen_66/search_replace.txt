@@ -1,0 +1,110 @@
+<NAME>
+adaptive_midswing_damping_with_position_coupling
+</NAME>
+
+<DESCRIPTION>
+Looking at the performance metrics, the current best program achieves a score of 4697.90 with stabilization_time of 217 steps and stable_x_error of 0.47. The key insight from the recommendations and prior programs is that:
+
+1. The mid-swing damping coefficient (K_d_midswing = 3.0) is static, but should adapt based on the phase-plane state
+2. The integral control could benefit from including position error directly in the gain scheduling
+3. The recovery phase predictive compensation could be improved by better handling the centrifugal term
+
+My proposed changes:
+1. Replace the static K_d_midswing with a phase-plane-adaptive coefficient using `np.tanh(3.0 * theta * dtheta)` to ensure damping activates only when the pole moves away from upright
+2. Enhance the integral gain scheduling to include position error for better centering
+3. Add a small cart damping term during emergency phase to prevent excessive cart movement during swing-up
+
+These changes target the stable_x_error (0.47) which is the main weakness, while maintaining the fast stabilization time.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        elif current_phase == "recovery":
+            # Enhanced mid-swing angular damping with improved direction gating
+            mid_swing_activation = np.exp(-5.0 * (abs_theta - 0.55)**2)
+            if abs_theta > 0.25 and abs_theta < 0.85:
+                K_d_midswing = 3.0  # Reduced from 6.0 for better energy efficiency
+                # Smart damping: only damp when moving away from vertical
+                is_moving_away = 0.5 * (1.0 + np.tanh(4.0 * theta * dtheta))
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * is_moving_away
+                force = force + midswing_damp
+=======
+        elif current_phase == "recovery":
+            # Enhanced mid-swing angular damping with phase-plane-adaptive coefficient
+            mid_swing_activation = np.exp(-5.0 * (abs_theta - 0.55)**2)
+            if abs_theta > 0.25 and abs_theta < 0.85:
+                # Adaptive damping: modulate based on phase-plane state
+                # Stronger when moving away from vertical, weaker when returning
+                K_d_base = 3.0
+                K_d_midswing = K_d_base * (1.0 + np.tanh(3.0 * theta * dtheta))
+                # Smart damping: only damp when moving away from vertical
+                is_moving_away = 0.5 * (1.0 + np.tanh(4.0 * theta * dtheta))
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * is_moving_away
+                force = force + midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        else:  # balancing phase
+            # Enhanced integral control with proper sign and windup protection
+            angle_gate = np.tanh(12.0 * (0.12 - abs_theta))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            # Adaptive integral gain: higher near equilibrium
+            K_i_adaptive = 0.90 * np.exp(-2.5 * (abs_theta + 0.4 * abs(dtheta)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.25, 0.90)
+=======
+        else:  # balancing phase
+            # Enhanced integral control with proper sign and windup protection
+            angle_gate = np.tanh(12.0 * (0.12 - abs_theta))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            # Adaptive integral gain: higher near equilibrium, includes position error
+            # Including |x| directly links integral aggressiveness to centering need
+            K_i_adaptive = 0.95 * np.exp(-3.0 * (abs_theta + 0.5 * abs(dtheta) + 0.2 * abs(x)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.30, 0.95)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        if current_phase == "emergency":
+            # Aggressive swing-up with energy pumping
+            swing_activation = np.tanh(8.0 * (abs_theta - 0.8))
+            # Energy-based pumping: add energy when moving toward upright
+            energy_direction = np.tanh(3.0 * theta * dtheta)
+            u_swing = 12.0 * swing_activation * np.sign(theta) * (1.0 + 0.5 * energy_direction)
+            force = force + u_swing
+=======
+        if current_phase == "emergency":
+            # Aggressive swing-up with energy pumping
+            swing_activation = np.tanh(8.0 * (abs_theta - 0.8))
+            # Energy-based pumping: add energy when moving toward upright
+            energy_direction = np.tanh(3.0 * theta * dtheta)
+            u_swing = 12.0 * swing_activation * np.sign(theta) * (1.0 + 0.5 * energy_direction)
+            force = force + u_swing
+            # Add cart damping during emergency to prevent excessive cart movement
+            force = force - 0.25 * dx * np.tanh(2.5 * abs_theta)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Enhanced windup protection with tighter limits
+                self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+            else:
+                self.integral_x *= 0.96
+=======
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Enhanced windup protection with tighter limits
+                self.integral_x = np.clip(self.integral_x, -1.2, 1.2)
+            else:
+                self.integral_x *= 0.94  # Faster decay for quicker response to changes
+>>>>>>> REPLACE
+</DIFF>

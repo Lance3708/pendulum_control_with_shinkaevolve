@@ -1,0 +1,39 @@
+Based on the performance analysis and creative thinking about the control problem, I propose adding a novel "falling-severity" factor to the swing-up assist. This will make the controller more responsive to how rapidly the pole is diverging from upright, providing stronger corrective forces when needed most.
+
+<NAME>
+falling_severity_swing_assist
+</NAME>
+
+<DESCRIPTION>
+The current swing-up assist uses a binary falling factor (1.0 or 1.5) based on whether theta*dtheta > 0. This can be improved by using a continuous measure of falling severity. When the pole is falling rapidly away from equilibrium (large positive theta*dtheta), we should provide stronger corrective forces. Conversely, when it's moving toward equilibrium, we can be more conservative.
+
+I'll replace the binary falling_factor with a continuous tanh-based function that scales from 1.0 to 2.0 based on the product theta*dtheta. This creates a smoother, more physically-aware response that can catch the pole more effectively during critical falling phases while maintaining stability during recovery.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Enhanced additive swing-up assist for large angles (>0.8 rad)
+        # Uses continuous falling-severity factor for smoother, more effective correction
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Continuous falling severity: scales from 1.0 to 2.0 based on how rapidly pole is falling
+            falling_severity = 1.0 + np.tanh(3.0 * theta * dtheta)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

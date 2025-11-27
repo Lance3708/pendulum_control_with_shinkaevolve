@@ -1,0 +1,36 @@
+{
+    "combined_score": 0.0,
+    "public": {
+        "score": 0.0,
+        "base_score": 10.066619017447882,
+        "time_bonus": 1.0063878837075355,
+        "energy_bonus": 8.002288247005652e-08,
+        "success_bonus": 0.0,
+        "stabilization_time": 1000,
+        "stabilization_ratio": 1.0,
+        "avg_energy_per_step": 0.981304442391486,
+        "total_energy": 981.304442391486,
+        "mean_step_reward": 0.010066619017447882,
+        "final_theta_error": 2.836383894870689,
+        "final_x_error": 4402.272720383499,
+        "stable_theta_error": 2.1445822464521167,
+        "stable_x_error": 1795.5161190367266
+    },
+    "private": {
+        "oscillation_penalty": -0.0,
+        "angle_oscillation_penalty": -272.0,
+        "boundary_penalty": -2000.0,
+        "unstable_penalty": -500.0,
+        "max_theta": 3.141267319654231,
+        "max_x": 4402.272720383499,
+        "max_force": 100.0,
+        "force_std": 23.64220457834383
+    },
+    "execution_time_mean": 0.06090816300275037,
+    "execution_time_std": 0.0,
+    "num_valid_runs": 0,
+    "num_invalid_runs": 1,
+    "all_validation_errors": [
+        "Cart moved out of bounds (>10.0m)"
+    ]
+}

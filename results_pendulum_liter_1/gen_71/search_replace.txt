@@ -1,0 +1,82 @@
+Looking at the performance metrics, the current best solution achieves a score of 4920.14 with a stabilization time of 192 steps. The key bottleneck appears to be the stabilization time - reducing it would significantly improve the time bonus (currently 2233.79 out of a possible ~3000).
+
+Analyzing the physics and control strategy, I notice that:
+1. The initial angle is 0.9 rad (far from equilibrium)
+2. The current gain scheduling activates at θ > 0.6 rad, which means it's only active for a small portion of the swing-down
+3. The additive swing-up assist term suggested in the recommendations could help accelerate recovery during the critical early phase
+
+Let me implement an additive physics-informed feedforward term that provides extra torque during large-angle recovery, decoupled from the base LQR to preserve its optimality near equilibrium.
+
+<NAME>
+additive_swing_assist_feedforward
+</NAME>
+
+<DESCRIPTION>
+Adding a physics-informed feedforward swing-up assist term that activates only for large angles (>0.7 rad). This term uses the angular velocity direction to inject energy in the correct direction during swing-down, helping accelerate the initial recovery phase without distorting the LQR's optimal behavior near equilibrium.
+
+The key insight is that at large angles, the system needs aggressive intervention to prevent falling, but this intervention should be additive rather than multiplicative to avoid amplifying LQR gains in ways that could cause overshoot. The term `u_swing = gain * tanh(activation) * sign(theta) * dtheta` naturally injects energy when the pole is moving toward vertical (theta and dtheta have opposite signs) and brakes when moving away.
+
+This approach:
+1. Decouples swing-up assistance from the base LQR
+2. Uses tanh for smooth activation/deactivation
+3. Preserves LQR optimality for |θ| < 0.7 rad
+4. Should reduce stabilization time by providing more aggressive early intervention
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain (use simple product - proven more effective)
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with smooth gain scheduling and swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain (use simple product - proven more effective)
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist: physics-informed feedforward for large angles
+        # Activates smoothly for |theta| > 0.7 rad, injects energy in correct direction
+        # When theta and dtheta have opposite signs (moving toward vertical), assists
+        # When same signs (moving away), brakes - both help stabilization
+        swing_activation = np.tanh(6.0 * max(0.0, abs(theta) - 0.7))
+        u_swing = 10.0 * swing_activation * np.sign(theta) * dtheta
+
+        force = force + u_swing
+
+        return float(force[0])
+=======
+>>>>>>> REPLACE
+</DIFF>

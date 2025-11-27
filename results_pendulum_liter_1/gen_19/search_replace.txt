@@ -1,0 +1,49 @@
+<NAME>
+nonlinear_friction_compensation_lqr
+</NAME>
+
+<DESCRIPTION>
+The key insight is that the current LQR controller uses a linearized model that doesn't account for the significant nonlinear friction effects present in this extreme setup. By augmenting the control law with explicit compensation for both cart and joint friction forces, we can dramatically improve stabilization performance without changing the underlying control architecture.
+
+The modification adds two components to the control force:
+1. A signed friction compensation term for the cart (Coulomb friction model)
+2. A velocity-proportional joint friction compensation term
+
+These compensations are added before applying the LQR control law, effectively making the system behave more like the idealized linear model that the LQR was designed for. This approach leverages our exact knowledge of the friction parameters to reduce the effective nonlinearities the controller must handle.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Friction compensation to counteract known nonlinear effects
+        # Cart friction compensation (Coulomb friction model)
+        cart_friction_compensation = FRICTION_CART * np.sign(dx) if abs(dx) > 1e-6 else 0.0
+
+        # Joint friction compensation (viscous friction model)
+        joint_friction_compensation = FRICTION_JOINT * dtheta
+
+        # Total feedforward compensation
+        friction_compensation = cart_friction_compensation + joint_friction_compensation
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        lqr_force = -self.K @ state_vec
+
+        # Apply friction compensation before limiting
+        force = lqr_force[0] + friction_compensation
+
+        return float(force)
+>>>>>>> REPLACE
+
+</DIFF>

@@ -1,0 +1,34 @@
+{
+    "combined_score": 4893.839296356665,
+    "public": {
+        "score": 4893.839296356665,
+        "base_score": 393.44735702275347,
+        "time_bonus": 2206.2280412338396,
+        "energy_bonus": 2494.163898100072,
+        "success_bonus": 800.0,
+        "stabilization_time": 196,
+        "stabilization_ratio": 0.196,
+        "avg_energy_per_step": 0.005774679988215287,
+        "total_energy": 5.774679988215287,
+        "mean_step_reward": 0.39344735702275346,
+        "final_theta_error": 3.785250202170687e-08,
+        "final_x_error": 6.6866530156550375e-09,
+        "stable_theta_error": 0.0036670771287278634,
+        "stable_x_error": 0.02856594802914848
+    },
+    "private": {
+        "oscillation_penalty": -0.0,
+        "angle_oscillation_penalty": -0.0,
+        "boundary_penalty": -1000.0,
+        "unstable_penalty": 0.0,
+        "max_theta": 0.9000000000000004,
+        "max_x": 7.202775371364364,
+        "max_force": 71.76832618258506,
+        "force_std": 7.599131521140764
+    },
+    "execution_time_mean": 0.015889694997895276,
+    "execution_time_std": 0.0,
+    "num_valid_runs": 1,
+    "num_invalid_runs": 0,
+    "all_validation_errors": []
+}

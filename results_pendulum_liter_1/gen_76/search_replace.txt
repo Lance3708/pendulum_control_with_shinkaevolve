@@ -1,0 +1,64 @@
+<NAME>
+enhanced_swing_up_assist_with_adaptive_gain
+</NAME>
+
+<DESCRIPTION>
+This enhancement introduces a physics-informed swing-up assist mechanism that actively helps the controller during the initial challenging phase when the pole is far from upright. The key insight is that when the pole is falling away from vertical (theta*dtheta > 0), applying a corrective force proportional to the system's energy can dramatically accelerate swing-up. Additionally, I've added an adaptive gain modulation that increases authority during critical swing-up phases while maintaining stability near equilibrium. This addresses the major challenge of the heavy, long pendulum requiring significant energy input to overcome gravity and friction early on.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x with smooth tanh-based gain scheduling"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth position-based gain using tanh for differentiable transitions
+        pos_gain = 1.0 + 0.45 * (np.tanh(4.5 * (abs(theta) - 0.45)) + 1.0) * 0.5
+
+        # Smooth velocity-based gain for high angular velocity situations
+        vel_gain = 1.0 + 0.3 * (np.tanh(3.5 * (abs(dtheta) - 0.7)) + 1.0) * 0.5
+
+        # Weighted blend based on dominant error mode
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.3 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+
+        force = base_force * adaptive_gain
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Enhanced LQR with physics-informed swing-up assist and adaptive gain"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Physics-informed swing-up assist: when pole is falling away from upright,
+        # inject energy proportional to system state to accelerate swing-up
+        # Strength modulated by how fast it's falling (theta*dtheta)
+        u_swing = 0.0
+        if theta * dtheta > 0:  # Falling away from equilibrium
+            # Energy-based assist: proportional to angular momentum and position
+            u_swing = 1.8 * np.sign(theta) * (abs(theta) + 0.7 * abs(dtheta))
+
+        # Enhanced adaptive gain with multiple operating modes:
+        # 1. Strong position correction when far from vertical
+        pos_gain = 1.0 + 0.55 * (np.tanh(5.0 * (abs(theta) - 0.4)) + 1.0) * 0.5
+
+        # 2. High-velocity damping when spinning fast
+        vel_gain = 1.0 + 0.35 * (np.tanh(4.0 * (abs(dtheta) - 0.65)) + 1.0) * 0.5
+
+        # 3. Blending strategy favoring position correction when needed most
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.3 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+
+        # Combine base LQR force with swing-up assist and apply adaptive gain
+        force = base_force * adaptive_gain + u_swing
+
+        # Safety clipping (though rarely triggered due to precise gains)
+        return float(np.clip(force, -100.0, 100.0))
+>>>>>>> REPLACE
+
+</DIFF>

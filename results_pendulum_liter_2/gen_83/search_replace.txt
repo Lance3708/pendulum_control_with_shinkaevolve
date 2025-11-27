@@ -1,0 +1,84 @@
+Looking at the performance metrics, I notice that the current program has a `final_x_error: 0.53` and `stable_x_error: 0.41`, which are significantly higher than the best performing program (Gen 75 with `final_x_error: 0.29` and `stable_x_error: 0.43`). The key difference in Gen 75 is its superior integral control logic with asymmetric windup limits and position-aware adaptive gains.
+
+Let me analyze what makes Gen 75 better:
+1. Asymmetric windup limits: `[-1.5 + 0.4*x, 1.5 + 0.4*x]` that bias the integral based on current position
+2. Position-aware adaptive integral gain: includes `0.3 * abs(x)` in the decay exponent
+3. Faster integral decay: 0.90 vs 0.95
+4. Enhanced position correction with stability factor gating
+
+I'll implement these improvements to the current program's precision hold phase.
+
+<NAME>
+asymmetric_integral_position_centering
+</NAME>
+
+<DESCRIPTION>
+This edit improves the precision hold phase (Phase 3) by implementing:
+1. Asymmetric integral windup limits that expand in the corrective direction based on current cart position - when x > 0, we need negative integral force, so we allow more negative accumulation
+2. Position-aware adaptive integral gain that becomes more aggressive when the cart is far from center
+3. Faster integral decay (0.90 instead of 0.95) for quicker response to state changes
+4. Enhanced position correction that activates when the system is stable, directly pushing the cart toward center
+
+These changes directly address the high final_x_error (0.53) and stable_x_error (0.41) by making the integral control more responsive to position errors and adding explicit position correction when the pole is nearly balanced.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Phase 3: Precision Hold (small angles)
+        else:
+            # Adaptive integral control for position centering
+            angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            K_i_adaptive = self.K_i * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.2, self.K_i)
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+            else:
+                self.integral_x *= 0.95
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # CRITICAL FIX: Integral force must oppose position error
+            force = force - integral_force
+
+            # Add explicit damping for faster settling
+            force = force - 0.4 * dx - 0.2 * dtheta
+=======
+        # Phase 3: Precision Hold (small angles)
+        else:
+            # Adaptive integral control for position centering
+            angle_gate = np.tanh(12.0 * (0.12 - abs(theta)))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            # Position-aware adaptive integral gain - stronger when cart is far from center
+            K_i_adaptive = 0.95 * np.exp(-3.0 * (abs(theta) + 0.6 * abs(dtheta) + 0.3 * abs(x)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.30, 0.95)
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Asymmetric windup limits: expand tolerance in corrective direction
+                # When x > 0, we need negative integral → expand negative limit
+                # When x < 0, we need positive integral → expand positive limit
+                lower_limit = -1.5 + 0.4 * x
+                upper_limit = 1.5 + 0.4 * x
+                self.integral_x = np.clip(self.integral_x, lower_limit, upper_limit)
+            else:
+                # Faster decay for quicker response to state changes
+                self.integral_x *= 0.90
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # Integral force added (LQR framework handles sign implicitly)
+            force = force + integral_force
+
+            # Enhanced position correction when stable
+            stability_factor = np.exp(-6.0 * (theta**2 + 0.25 * dtheta**2))
+            if stability_factor > 0.15:
+                # Direct position and velocity correction for centering
+                position_correction = -1.8 * x * stability_factor - 0.9 * dx * stability_factor
+                force = force + position_correction
+>>>>>>> REPLACE
+</DIFF>

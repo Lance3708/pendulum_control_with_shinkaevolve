@@ -1,0 +1,69 @@
+<NAME>
+precision_centering_refinement
+</NAME>
+
+<DESCRIPTION>
+The current controller performs well but has room for improvement in the final position centering. The key insight is to enhance the balancing phase with a more sophisticated position correction strategy that adapts to both angle and position errors. This change introduces a state-dependent position correction that becomes more aggressive as the system stabilizes, helping to reduce the final position error from 0.09 to even closer to zero.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        else:  # balancing phase
+            # Enhanced integral control with dual gating
+            angle_gate = np.tanh(12.0 * (0.12 - abs_theta))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            # HYBRID FEATURE: Adaptive integral gain includes position error for better centering
+            K_i_adaptive = self.K_i * np.exp(-3.0 * (abs_theta + 0.6 * abs(dtheta) + 0.3 * abs(x)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.30, self.K_i)
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # HYBRID FEATURE: Tighter windup limits for more responsive integral action
+                self.integral_x = np.clip(self.integral_x, -1.2, 1.2)
+            else:
+                # HYBRID FEATURE: Faster decay for quicker response to state changes
+                self.integral_x *= 0.94
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            force = force + integral_force
+
+            # Enhanced position correction for final centering
+            stability_factor = np.exp(-6.0 * (theta**2 + 0.25 * dtheta**2))
+            if stability_factor > 0.15:
+                position_correction = -1.5 * x * stability_factor - 0.8 * dx * stability_factor
+                force = force + position_correction
+=======
+        else:  # balancing phase
+            # Enhanced integral control with dual gating
+            angle_gate = np.tanh(12.0 * (0.12 - abs_theta))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            # HYBRID FEATURE: Adaptive integral gain includes position error for better centering
+            K_i_adaptive = self.K_i * np.exp(-3.0 * (abs_theta + 0.6 * abs(dtheta) + 0.3 * abs(x)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.30, self.K_i)
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # HYBRID FEATURE: Tighter windup limits for more responsive integral action
+                self.integral_x = np.clip(self.integral_x, -1.2, 1.2)
+            else:
+                # HYBRID FEATURE: Faster decay for quicker response to state changes
+                self.integral_x *= 0.94
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            force = force + integral_force
+
+            # Enhanced position correction for final centering
+            # New adaptive position correction that increases with stability
+            stability_factor = np.exp(-6.0 * (theta**2 + 0.25 * dtheta**2))
+            if stability_factor > 0.15:
+                # Additional position correction that becomes more aggressive as system stabilizes
+                position_correction_strength = 1.5 + 0.5 * np.tanh(5.0 * (0.1 - abs_theta))
+                position_correction = -position_correction_strength * x * stability_factor - 0.8 * dx * stability_factor
+                force = force + position_correction
+>>>>>>> REPLACE
+
+</DIFF>

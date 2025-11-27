@@ -1,0 +1,205 @@
+import numpy as np
+
+# --- Physics Constants ---
+M_CART = 1.0
+M_POLE = 0.35
+L_POLE = 2.5
+L_COM = L_POLE / 2
+G = 9.81
+FRICTION_CART = 0.35
+FRICTION_JOINT = 0.25
+DT = 0.02
+
+class Controller:
+    """
+    Phase-Based Orchestrator with Discrete Behavioral Modes
+    
+    Four distinct phases with sharp transitions:
+    - EMERGENCY: Falling fast, use predictive momentum compensation
+    - SWING-UP: Large angles, energy pumping with friction compensation  
+    - CONVERGENCE: Moderate angles, velocity matching and positioning
+    - PRECISION: Small angles, gentle stabilization with drift control
+    """
+    
+    def __init__(self):
+        # Phase thresholds
+        self.emergency_threshold = 0.7  # rad - falling fast
+        self.swing_threshold = 0.4      # rad - need energy pumping
+        self.convergence_threshold = 0.15  # rad - moderate control
+        self.precision_threshold = 0.05   # rad - fine control
+        
+        # Emergency phase parameters
+        self.emergency_gain = 45.0
+        self.momentum_prediction_horizon = 0.08  # seconds
+        
+        # Swing-up phase parameters  
+        self.swing_energy_gain = 28.0
+        self.swing_friction_compensation = 12.0
+        
+        # Convergence phase parameters
+        self.convergence_angle_gain = 35.0
+        self.convergence_velocity_gain = 8.0
+        self.position_correction_gain = 2.5
+        
+        # Precision phase parameters
+        self.precision_angle_gain = 42.0
+        self.precision_velocity_gain = 10.0
+        self.integral_gain = 0.6
+        self.position_integral = 0.0
+        
+        # Memory for phase transitions
+        self.last_phase = "EMERGENCY"
+        self.phase_transition_smoothing = 0.0
+
+    def get_action(self, state):
+        """Orchestrate control based on current phase detection"""
+        x, theta, dx, dtheta = state
+        
+        # Normalize angle
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        
+        # Detect current phase
+        current_phase = self._detect_phase(theta, dtheta, x, dx)
+        
+        # Apply phase-specific control law
+        if current_phase == "EMERGENCY":
+            force = self._emergency_control(theta, dtheta, x, dx)
+        elif current_phase == "SWING-UP":
+            force = self._swing_up_control(theta, dtheta, x, dx)
+        elif current_phase == "CONVERGENCE":
+            force = self._convergence_control(theta, dtheta, x, dx)
+        else:  # PRECISION
+            force = self._precision_control(theta, dtheta, x, dx)
+            
+        # Smooth phase transitions to avoid jerky behavior
+        if current_phase != self.last_phase:
+            self.phase_transition_smoothing = 0.3
+        else:
+            self.phase_transition_smoothing *= 0.8
+            
+        if self.phase_transition_smoothing > 0.01:
+            # Blend with previous phase's behavior during transition
+            if self.last_phase == "EMERGENCY":
+                prev_force = self._emergency_control(theta, dtheta, x, dx)
+            elif self.last_phase == "SWING-UP":
+                prev_force = self._swing_up_control(theta, dtheta, x, dx)
+            elif self.last_phase == "CONVERGENCE":
+                prev_force = self._convergence_control(theta, dtheta, x, dx)
+            else:
+                prev_force = self._precision_control(theta, dtheta, x, dx)
+                
+            force = (force * (1 - self.phase_transition_smoothing) + 
+                    prev_force * self.phase_transition_smoothing)
+        
+        self.last_phase = current_phase
+        return float(np.clip(force, -100.0, 100.0))
+
+    def _detect_phase(self, theta, dtheta, x, dx):
+        """Determine which control phase we're in"""
+        abs_theta = abs(theta)
+        abs_dtheta = abs(dtheta)
+        
+        # Emergency: falling fast or extreme angle
+        if (abs_theta > self.emergency_threshold or 
+            (abs_theta > 0.5 and abs_dtheta > 2.0) or
+            (abs_theta > 0.3 and abs_dtheta > 3.0)):
+            return "EMERGENCY"
+        
+        # Swing-up: large angle but not emergency
+        elif abs_theta > self.swing_threshold:
+            return "SWING-UP"
+        
+        # Convergence: moderate angle, getting close
+        elif abs_theta > self.convergence_threshold:
+            return "CONVERGENCE"
+        
+        # Precision: small angle, fine control needed
+        else:
+            return "PRECISION"
+
+    def _emergency_control(self, theta, dtheta, x, dx):
+        """Emergency response to prevent falling"""
+        # Predict where we'll be in the near future
+        theta_pred = theta + dtheta * self.momentum_prediction_horizon
+        
+        # Calculate emergency force based on predicted state
+        emergency_force = -self.emergency_gain * theta_pred
+        
+        # Add momentum compensation
+        momentum_compensation = -8.0 * dtheta * np.tanh(2.0 * abs(theta))
+        
+        # Cart position correction (secondary priority)
+        position_correction = -1.5 * x - 0.8 * dx
+        
+        total_force = emergency_force + momentum_compensation + position_correction
+        
+        # Ensure decisive action in emergency
+        if abs(total_force) < 25.0 and abs(theta) > 0.5:
+            total_force = 25.0 * np.sign(total_force) if total_force != 0 else 25.0 * np.sign(theta)
+            
+        return total_force
+
+    def _swing_up_control(self, theta, dtheta, x, dx):
+        """Energy pumping strategy for swing-up phase"""
+        # Energy-based control: pump when moving away from upright
+        energy_pumping = self.swing_energy_gain * np.sign(theta) * np.tanh(2.0 * abs(dtheta))
+        
+        # Friction compensation (critical for heavy pole)
+        friction_comp = self.swing_friction_compensation * np.sign(dtheta) * np.tanh(abs(dtheta))
+        
+        # Direction-aware damping: stronger when moving away from upright
+        direction_factor = np.tanh(3.0 * theta * dtheta)  # Positive when moving away
+        velocity_damping = -4.0 * dtheta * (1.0 + 0.5 * max(0, direction_factor))
+        
+        # Position management
+        position_control = -1.2 * x - 0.6 * dx
+        
+        total_force = energy_pumping + friction_comp + velocity_damping + position_control
+        return total_force
+
+    def _convergence_control(self, theta, dtheta, x, dx):
+        """Bring system to near-vertical with good positioning"""
+        # Angle control with velocity matching
+        angle_control = -self.convergence_angle_gain * theta
+        velocity_control = -self.convergence_velocity_gain * dtheta
+        
+        # Smart position correction - scale with angle improvement
+        position_urgency = 1.0 - np.tanh(6.0 * abs(theta))
+        position_control = -self.position_correction_gain * x * position_urgency
+        velocity_correction = -1.2 * dx * position_urgency
+        
+        # Gentle velocity damping
+        velocity_damping = -2.5 * dtheta * np.exp(-3.0 * abs(theta))
+        
+        total_force = (angle_control + velocity_control + 
+                      position_control + velocity_correction + velocity_damping)
+        return total_force
+
+    def _precision_control(self, theta, dtheta, x, dx):
+        """Fine stabilization near perfect balance"""
+        # High-gain angle control
+        angle_control = -self.precision_angle_gain * theta
+        velocity_control = -self.precision_velocity_gain * dtheta
+        
+        # Integral control for position drift (only in precision mode)
+        self.position_integral += x * DT
+        self.position_integral = np.clip(self.position_integral, -0.8, 0.8)
+        integral_control = -self.integral_gain * self.position_integral
+        
+        # Gentle position correction
+        position_control = -1.8 * x - 1.0 * dx
+        
+        total_force = angle_control + velocity_control + integral_control + position_control
+        
+        # Very gentle actions near perfect balance
+        if abs(theta) < 0.02 and abs(dtheta) < 0.1:
+            total_force *= 0.7
+            
+        return total_force
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    force = controller.get_action(state)
+    return float(np.clip(force, -100.0, 100.0))

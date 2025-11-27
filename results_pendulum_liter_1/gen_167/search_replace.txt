@@ -1,0 +1,42 @@
+<NAME>
+enhanced_swing_up_with_energy_awareness
+</NAME>
+
+<DESCRIPTION>
+This enhancement improves the swing-up strategy by incorporating energy awareness alongside the existing falling severity metric. The key insight is that for large angles, the controller should not only react to how fast the pole is falling but also consider how much energy is needed to bring it back to the upright position. This allows for more efficient swing-up actions that minimize unnecessary energy expenditure while ensuring successful stabilization. The energy deficit calculation provides a natural scaling factor for the swing-up assist, making it more aggressive when the pole has low energy (far from upright) and gentler when it's closer to having enough energy naturally.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+=======
+        # Enhanced swing-up assist with energy awareness
+        if abs(theta) > 0.8:
+            # Calculate current mechanical energy of pendulum
+            E_kinetic = 0.5 * M_POLE * (L_COM * dtheta)**2
+            E_potential = M_POLE * G * L_COM * (1 - np.cos(theta))
+            E_current = E_kinetic + E_potential
+
+            # Energy required to reach upright unstable equilibrium
+            E_target = 2 * M_POLE * G * L_COM  # Potential energy at top
+
+            # Energy deficit ratio (0 = full energy, 1 = no energy)
+            energy_deficit = max(0.0, 1.0 - E_current / E_target)
+
+            # Activation based on angle and energy deficit
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8)) * energy_deficit
+
+            # Falling severity factor (preserving existing behavior)
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+
+            # Combined swing-up force with energy-aware scaling
+            u_swing = 9.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+>>>>>>> REPLACE
+
+</DIFF>

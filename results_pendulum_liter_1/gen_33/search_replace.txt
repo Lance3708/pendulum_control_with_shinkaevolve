@@ -1,0 +1,37 @@
+<NAME>
+refined_joint_friction_and_increased_dtheta_weight
+</NAME>
+
+<DESCRIPTION>
+This edit addresses two key recommendations:
+
+1. **Refine the joint friction term in the A matrix**: The current implementation uses `A[3,3] = -b_j / (m * l**2 * (4.0/3.0 - m / Mtot))` which doesn't match the simulator's dissipative structure. Looking at the simulator, the joint friction term `f_joint / (M_POLE * L_COM)` appears in the numerator and is divided by `L_COM * (4.0/3.0 - ...)`. This means the correct linearized term should be `-b_j / (m * l * denom0)` where `denom0 = l * (4.0/3.0 - m/Mtot)`. This aligns the linear model's damping with the true physics.
+
+2. **Increase angular velocity weighting in Q**: Adjusting Q[3,3] from 2.0 to 2.5 will penalize residual angular motion more heavily, reducing oscillation decay time. This should help reduce stabilization time below 251 steps, boosting the time_bonus.
+
+Additionally, I'm slightly reducing Q[0,0] from 4.2 to 4.0 to maintain balance and avoid over-aggressive cart positioning that could waste energy.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # theta_acc row (3) - using corrected joint friction term
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l**2 * (4.0/3.0 - m / Mtot))  # Corrected physical damping
+=======
+        # theta_acc row (3) - using corrected joint friction term matching simulator
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)  # Matches simulator's f_joint/(m*l) / denom0
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: aggressive angular control, conservative cart positioning
+        Q = np.diag([4.2, 38.0, 0.5, 2.0])  # Tuned for faster stabilization
+=======
+        # Optimized LQR weights: increased dtheta penalty for faster oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 2.5])  # Higher dtheta weight reduces stabilization time
+>>>>>>> REPLACE
+</DIFF>

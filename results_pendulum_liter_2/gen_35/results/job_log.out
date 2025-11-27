@@ -1,0 +1,14 @@
+Evaluating program: results_pendulum_liter/gen_35/main.py
+Saving results to: results_pendulum_liter/gen_35/results
+Evaluation error: cannot access local variable 'theta_acc_est' where it is not associated with a value
+Correctness and error status saved to results_pendulum_liter/gen_35/results/correct.json
+Metrics saved to results_pendulum_liter/gen_35/results/metrics.json
+Evaluation or Validation failed: cannot access local variable 'theta_acc_est' where it is not associated with a value
+Metrics:
+  combined_score: 0.0
+  execution_time_mean: 0.0
+  execution_time_std: 0.0
+  num_successful_runs: 0
+  num_valid_runs: 0
+  num_invalid_runs: 0
+  all_validation_errors: []

@@ -1,0 +1,70 @@
+<NAME>
+multiplicative_gain_with_swing_assist
+</NAME>
+
+<DESCRIPTION>
+The current program uses a weighted blend of position and velocity gains, which underperforms compared to the best-performing variants that use simple multiplicative gain scheduling. Looking at the top performers (4920.15 score), they all use:
+1. Simple multiplicative combination: `adaptive_gain = pos_gain * vel_gain`
+2. Additive swing-up assist for large angles (>0.8 rad)
+
+The current implementation's weighted blend approach achieves 4893.84, while the multiplicative approach with swing-up assist achieves 4920.15. The key insight is that multiplicative gains compound the effect when both angle and velocity are large (which is exactly when we need maximum authority), while the weighted blend dilutes this effect.
+
+Additionally, the swing-up assist provides an extra physics-informed impulse when the pole is at large angles and falling away from equilibrium, which helps catch the pole faster during the initial recovery phase.
+
+I'll replace the current gain scheduling logic with the proven multiplicative approach plus swing-up assist.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x with smooth tanh-based gain scheduling"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth position-based gain using tanh for differentiable transitions
+        pos_gain = 1.0 + 0.45 * (np.tanh(4.5 * (abs(theta) - 0.45)) + 1.0) * 0.5
+
+        # Smooth velocity-based gain for high angular velocity situations
+        vel_gain = 1.0 + 0.3 * (np.tanh(3.5 * (abs(dtheta) - 0.7)) + 1.0) * 0.5
+
+        # Weighted blend based on dominant error mode
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.3 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+
+        force = base_force * adaptive_gain
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR with multiplicative gain scheduling and swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Proven optimal gain scheduling: smooth tanh activation with multiplicative combination
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Multiplicative combination compounds effect when both errors are large
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist for large angles (>0.8 rad)
+        # Provides extra corrective impulse when pole is falling away from equilibrium
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # If theta*dtheta > 0, pole is falling further - need stronger correction
+            falling_factor = 1.0 + 0.5 * float(theta * dtheta > 0)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

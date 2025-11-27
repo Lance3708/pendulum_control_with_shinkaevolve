@@ -1,0 +1,42 @@
+<NAME>
+smooth_error_mode_blending
+</NAME>
+
+<DESCRIPTION>
+The current controller uses a multiplicative combination of position and velocity gains (pos_gain * vel_gain), which can lead to overly aggressive control when both angle and angular velocity are large. This can waste energy and excite oscillations.
+
+Instead, I propose replacing this with a smooth, differentiable blending mechanism that selects the dominant error mode (angle vs angular velocity) using a sigmoid function. This approach:
+
+1. Uses a physics-informed weighting: when |theta| dominates, prioritize angular correction; when |dtheta| dominates, prioritize damping.
+2. Employs a smooth sigmoid transition (1/(1+exp(-k*(|theta|-c*|dtheta|)))) instead of piecewise or multiplicative logic, ensuring differentiability.
+3. Maintains full responsiveness where needed but avoids compounding gains that increase energy usage without improving stabilization time.
+
+This change preserves the fast stabilization (critical for time bonus) while reducing unnecessary actuation, thereby improving energy efficiency (energy bonus) and overall smoothness of control.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+=======
+        # Smooth, differentiable gain scheduling with dominant error mode selection
+        # Uses sigmoid-based blending between angle and angular velocity dominance
+        # Prevents over-aggressive control from multiplicative gains
+
+        # Position-focused gain activated when |theta| > threshold
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * (abs(theta) - 0.6))
+
+        # Velocity-focused gain activated when |dtheta| > threshold
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * (abs(dtheta) - 1.0))
+
+        # Smoothly blend based on dominant error mode using sigmoid
+        # Weight more heavily toward angle correction if angle error dominates
+        blend_factor = 1.0 / (1.0 + np.exp(-8.0 * (abs(theta) - 0.3 * abs(dtheta))))
+        adaptive_gain = blend_factor * pos_gain + (1.0 - blend_factor) * vel_gain
+>>>>>>> REPLACE
+</DIFF>

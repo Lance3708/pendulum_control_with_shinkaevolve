@@ -1,0 +1,158 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Suboptimal LQR Controller for Inverted Pendulum**  
+- **Implementation**: Uses a linearized state-space model with conservative LQR gains (low Q, high R) to stabilize a challenging inverted pendulum system with heavy/long pole and high friction; control actions are clipped to ±100 N.  
+- **Performance**: Achieved a combined score of 3195.17, with strong energy efficiency but slow stabilization (459 steps, 46% ratio).  
+- **Feedback**: The overly conservative LQR tuning results in sluggish response and poor error correction early on, limiting time and precision bonuses despite eventual stability and low energy use.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: False
+
+**Program Name: Suboptimal LQR with Nonlinear Compensation**  
+- **Implementation**: Uses a linearized LQR controller with aggressive Q/R weights combined with gravity and damping compensation terms to stabilize a highly unstable inverted pendulum (long, heavy pole; high friction).  
+- **Performance**: Achieved a combined score of 0.00 due to large final position/angle errors despite running all 1000 steps.  
+- **Feedback**: The controller fails to stabilize the system—final cart position diverges drastically (>4000 m) and pole angle remains far from upright (~2.94 rad), indicating poor control authority or incorrect linearization assumptions under large deviations.
+**Program Identifier:** Generation 1 - Patch Name tune_lqr_nonlinear_comp - Correct Program: False
+
+**Program Name: Sliding Mode Energy Controller**
+
+- **Implementation**: Combines energy-based swing-up with sliding mode stabilization, featuring adaptive gain scheduling, friction compensation, and smooth sign approximation to reduce chattering; uses hybrid control modes based on pole angle magnitude.
+
+- **Performance**: Achieved a combined score of 0.00 due to failure in stabilizing the pendulum (final theta error = 2.52 rad), despite moderate energy efficiency (avg_energy_per_step = 0.35) and full episode length (stabilization_time = 1000).
+
+- **Feedback**: The controller fails to stabilize the pendulum within the required bounds (|theta| ≤ 1.0 rad), indicating insufficient robustness or incorrect tuning for the highly challenging system parameters (heavy, long pole with high friction); energy shaping may dominate over stabilization near upright, preventing convergence.
+**Program Identifier:** Generation 2 - Patch Name sliding_mode_energy_shaping_hybrid - Correct Program: False
+
+**Program Name: Suboptimal LQR for Inverted Pendulum**
+
+- **Implementation**: Uses a linearized continuous-time LQR controller with aggressive Q/R weights on a highly unstable pendulum (long, heavy pole; high friction), but applies it directly to the nonlinear system without accounting for large-angle deviations or proper state wrapping in dynamics.
+- **Performance**: Achieves full 1000-step simulation (stabilization_ratio=1.0) but with very poor control accuracy (final_theta_error=3.11 rad, final_x_error=4433 m) and low combined score (0.00).
+- **Feedback**: Despite running to completion, the controller fails to stabilize the pendulum near upright due to mismatch between linear LQR assumptions and highly nonlinear, challenging dynamics; large steady-state errors indicate inadequate gain tuning or linearization validity.
+**Program Identifier:** Generation 3 - Patch Name correct_linearization_tune_weights - Correct Program: False
+
+**Program Name: Hybrid Energy-LQR Inverted Pendulum Controller**  
+- **Implementation**: Combines energy-based swing-up control for large angles with a nonlinear LQR stabilizer using state-dependent gain scheduling; includes friction modeling and Euler integration.  
+- **Performance**: Scored 0.00 due to failure to stabilize the pendulum within limits (final theta error: 2.52 rad, exceeded 1.0 rad threshold).  
+- **Feedback**: Despite sophisticated hybrid control design, the controller fails to recover from the aggressive initial condition (0.9 rad) given the heavy, long pole and high friction; likely issues include inaccurate linearization in LQR design and insufficient robustness in transition logic.
+**Program Identifier:** Generation 4 - Patch Name nonlinear_lqr_with_energy_shaping - Correct Program: False
+
+**Program Name: Suboptimal LQR for Inverted Pendulum**  
+- **Implementation**: Uses a linearized LQR controller with hand-tuned Q and R matrices on a highly unstable inverted pendulum (long, heavy pole; high friction); applies Euler integration for dynamics and clips control force to ±100 N.  
+- **Performance**: Achieved a combined score of 0.00 due to poor stabilization—final angle error of 2.95 rad and position error over 4000 m.  
+- **Feedback**: Despite aggressive LQR tuning (high angle weight, low control penalty), the controller fails to stabilize the system, likely due to severe nonlinearity from large initial angle (0.9 rad) and model mismatch between linear LQR and highly nonlinear dynamics.
+**Program Identifier:** Generation 5 - Patch Name aggressive_lqr_tuning - Correct Program: False
+
+**Program Name: Adaptive LQR Inverted Pendulum Controller**  
+- **Implementation**: Uses two LQR controllers (conservative for large angles, aggressive near upright) with linearized dynamics around the upright equilibrium; applies state feedback with angle wrapping and force clipping.  
+- **Performance**: Scored 0.00 due to failure to stabilize, despite full simulation steps (stabilization_ratio=1.00), with high final position error (4357.35 m) and pole angle error (2.91 rad).  
+- **Feedback**: The controller fails to handle the highly unstable system (long, heavy pole; high friction); aggressive gains activate too late, and conservative gains are too weak to recover from large initial angle (0.9 rad). Linearization may be invalid for such large deviations.
+**Program Identifier:** Generation 6 - Patch Name accurate_linearization_and_gain_scheduling - Correct Program: False
+
+**Program Name: Adaptive LQR Controller for Inverted Pendulum**  
+- **Implementation**: Uses three gain-scheduled LQR controllers selected based on angle and angular velocity magnitude, with state normalization and energy-based force scaling near equilibrium.  
+- **Performance**: Achieved a combined score of 0.00 due to failure in stabilization (final theta error: 2.82 rad, cart position diverged to 4340 m).  
+- **Feedback**: Despite adaptive gains and proper linearization, the controller failed to stabilize the highly unstable system (long, heavy pole with high friction), suggesting insufficient robustness or incorrect dynamics modeling in the control law.
+**Program Identifier:** Generation 7 - Patch Name adaptive_lqr_controller - Correct Program: False
+
+**Program Name: Adaptive LQR with Gain Scheduling**  
+- **Implementation**: Uses two LQR controllers (recovery and balance modes) blended via a sigmoid-like function based on pole angle; control gains are scheduled smoothly to handle large initial deviations.  
+- **Performance**: Scored 0.00 due to failure to stabilize the pendulum within limits, despite high base score (14.54), indicating simulation ran full duration but ended far from upright.  
+- **Feedback**: The controller failed to correct large initial angle (0.9 rad) under challenging dynamics (heavy, long pole); final theta error (2.76 rad) and massive cart drift (x ≈ 3318 m) suggest instability or incorrect linearization assumptions in LQR design.
+**Program Identifier:** Generation 8 - Patch Name none - Correct Program: False
+
+**Program Name: Adaptive LQR for Inverted Pendulum**  
+- **Implementation**: Uses a suboptimal adaptive LQR controller that switches between conservative and aggressive gain matrices based on pole angle; implemented with Euler integration and nonlinear dynamics simulation.  
+- **Performance**: Achieved a combined score of 0.00 due to high final position error (4262.33 m) and angle error (3.06 rad), despite running all 1000 steps.  
+- **Feedback**: The controller fails to stabilize the cart-pole system under challenging conditions (long, heavy pole; high friction); poor state regulation suggests inadequate gain tuning or linearization mismatch in the highly nonlinear regime.
+**Program Identifier:** Generation 9 - Patch Name adaptive_lqr_gains_near_equilibrium - Correct Program: False
+
+**Program Name: Adaptive LQR with Integral Action**
+
+- **Implementation**: Uses gain-scheduled LQR control blending aggressive and precision gains based on pole angle magnitude, augmented with integral action for friction compensation and additional damping terms for high velocities. Includes anti-windup, friction compensation, and smooth saturation.
+
+- **Performance**: Achieved a combined score of 0.00 despite moderate base_score (9.47) and time_bonus (1.01), due to complete failure in stabilization (final_theta_error: 3.03 rad, final_x_error: 4425 m).
+
+- **Feedback**: The controller fails to stabilize the pendulum under challenging conditions (heavy, long pole; high friction; large initial angle). Integral action and adaptive gains are insufficient to overcome model inaccuracies and aggressive dynamics, leading to divergence rather than recovery.
+**Program Identifier:** Generation 10 - Patch Name adaptive_gain_lqr_with_integral - Correct Program: False
+
+**Program Name: Suboptimal LQR for Inverted Pendulum**  
+- **Implementation**: Uses a linearized model with friction-aware dynamics to compute an LQR controller; state feedback gain is derived from continuous-time algebraic Riccati equation with modest Q/R weights favoring low control effort over fast stabilization.  
+- **Performance**: Achieved a combined score of 3252.50, with strong energy efficiency (avg_energy_per_step: 0.01) but moderate stabilization ratio (0.44) and time bonus due to slow response.  
+- **Feedback**: The conservative LQR tuning successfully stabilized the challenging high-friction, long/heavy-pole system but sacrificed speed and precision—evidenced by low base and time scores despite perfect final error and high success bonus.
+**Program Identifier:** Generation 11 - Patch Name correct_linear_model_friction_tune_gains - Correct Program: True
+
+**Program Name: High-Performance LQR for Inverted Pendulum**  
+- **Implementation**: Uses a linearized model of an inverted pendulum with aggressive LQR cost weights (`Q=[15,35,2,4]`, `R=0.8`) and includes angle normalization; control forces are clipped to ±100 N.  
+- **Performance**: Achieved a combined score of 0.0, failing all validation tests.  
+- **Feedback**: The LQR controller is based on a linear approximation that likely fails to capture the highly nonlinear dynamics of the heavy, long pole; early termination conditions (e.g., angle >1.0 rad) were commented out, possibly allowing unstable behavior to continue unchecked.
+**Program Identifier:** Generation 12 - Patch Name lqr_optimized_structural - Correct Program: False
+
+**Program Name: Aggressive LQR with Gain Scheduling**  
+- **Implementation**: Uses a state-dependent blend between aggressive and conservative LQR controllers based on pole angle magnitude, with high Q weights for tight angle control and lower R to allow stronger forces; designed for a heavy, long pole with high friction.  
+- **Performance**: Combined score: 0.0 — fails to stabilize the pendulum under validation tests.  
+- **Feedback**: Despite sophisticated gain scheduling and tuning for challenging dynamics, the controller fails to handle large initial angles or nonlinearities beyond the linearized model’s validity; early termination due to instability suggests insufficient robustness in recovery phase.
+**Program Identifier:** Generation 13 - Patch Name aggressive_lqr_with_gain_scheduling - Correct Program: False
+
+**Program Name: Adaptive LQR with Integral Action**  
+- **Implementation**: Uses an extended state-space model with integral action for steady-state error reduction and adaptive gain scheduling based on pole angle to handle nonlinearities. The controller computes LQR gains offline using continuous-time Riccati equation and applies angle normalization and anti-windup logic for the integrator.  
+- **Performance**: Achieved a combined score of 0.0, failing all validation tests.  
+- **Feedback**: Despite sophisticated control design, the linearized model used for LQR does not adequately capture the highly nonlinear dynamics of the heavy, long pole under high friction; additionally, the simulation lacks early termination on failure (e.g., pole angle >1.0 rad), leading to invalid trajectories that likely caused evaluation failures.
+**Program Identifier:** Generation 14 - Patch Name adaptive_lqr_with_integral_action - Correct Program: False
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+## Successful Algorithmic Patterns
+
+- **Conservative LQR tuning remains the only viable strategy for stabilization**: The *Suboptimal LQR for Inverted Pendulum* (Generation 11, score: **3252.50**) succeeded by using modest Q weights (`[5.0, 30.0, 0.5, 2.0]`) and a moderate R (`1.0`), which produced gentle corrective forces that avoided exciting the system’s strong nonlinearities—mirroring the earlier success of Generation 0 but with refined friction-aware linearization.
+  
+- **Accurate linearized model incorporating friction dynamics is critical**: Unlike failed attempts that used idealized or incomplete models, Generation 11 explicitly included cart and joint friction terms in its A matrix derivation, aligning the controller more closely with actual plant behavior under high-friction conditions—a key differentiator from Generations 10, 12–14 which omitted or mis-modeled these effects.
+
+- **Force clipping to physical limits ensures simulation validity and prevents divergence**: Generation 11 retained the ±100 N force clamp seen in Generation 0, ensuring actuator commands remained within feasible bounds; this prevented saturation-induced instability that plagued unclipped or poorly scaled variants like Generation 12.
+
+- **Simplicity without adaptive logic enables robustness under model mismatch**: Despite having access to complex techniques like gain scheduling and integral action (used in Generations 10, 13, 14), the best-performing program avoided them entirely—demonstrating that minimal, well-tuned linear feedback outperforms sophisticated adaptation when the underlying model cannot capture severe nonlinearities.
+
+## Ineffective Approaches
+
+- **Integral action fails to compensate for structural model inaccuracies**: Both Generation 10 and Generation 14 implemented integral augmentation to reduce steady-state error but still scored **0.00**, as their linearized models were invalid far from equilibrium—rendering integrator anti-windup and angle normalization ineffective against fundamental dynamic mismatches.
+
+- **Aggressive gain scheduling activates too late to recover large initial deviations**: Programs like Generation 13 used state-dependent blending between aggressive and conservative gains but failed because large initial angles (~0.9 rad) pushed the system beyond the linear regime before aggressive gains could engage—resulting in immediate divergence rather than recovery.
+
+- **High Q / low R LQR tuning amplifies instability in stiff systems**: Generation 12 employed aggressive cost weights (`Q=[15,35,2,4], R=0.8`) but achieved **0.00** due to excessive control effort that destabilized the heavy, long pole—confirming prior insight that assertive corrections worsen performance in highly nonlinear regimes.
+
+- **Omission of early termination masks catastrophic failure**: Multiple failed programs (e.g., Generations 10, 14) allowed simulations to run full duration despite pole angles exceeding 1.0 rad early on, leading to invalid trajectories that invalidated scoring—highlighting that runtime completion does not equate to meaningful control.
+
+## Implementation Insights
+
+- **Friction-aware linearization directly enables successful control design**: Generation 11’s A matrix correctly incorporates both cart (`-fc/M_total`) and joint (`-fj/(m*l²*alpha)`) damping terms into the state-space model, making its LQR gains compatible with the true dissipative dynamics—an implementation detail absent in all failed programs.
+
+- **Minimalist controller structure reduces fragility**: The current best program uses a pure LQR law (`u = -Kx`) without switching logic, normalization beyond basic angle wrapping, or hybrid modes—contrasting sharply with the layered complexity of Generations 10, 13, and 14 whose added components introduced failure points without benefit.
+
+- **Proper angle normalization is necessary but insufficient alone**: While Generation 11 includes `theta = ((theta + np.pi) % (2*np.pi)) - np.pi`, this alone did not guarantee success—as shown by Generation 14, which also normalized angles yet failed due to poor model fidelity and aggressive tuning.
+
+- **Euler integration remains acceptable when paired with low-gain feedback**: Despite known numerical limitations, Generation 11’s use of Euler integration succeeded because conservative gains avoided exciting fast dynamics—whereas higher-gain controllers (e.g., Generation 12) likely suffered from discretization errors amplified by aggressive corrections.
+
+## Performance Analysis
+
+- **Only one program (Generation 11) achieved non-zero score (3252.50); all others scored exactly 0.00**, reinforcing that terminal accuracy (`|theta| ≤ 1.0 rad`) is an absolute requirement—any violation nullifies base, time, and energy bonuses regardless of intermediate behavior.
+
+- **Stabilization ratio correlates strongly with conservative control**: Generation 11 achieved a **stabilization_ratio of 0.44** and stabilized in **444 steps**, while all other programs ran full 1000 steps without ever meeting stability criteria—proving that slower, gentler control enables eventual convergence where faster methods fail completely.
+
+- **Energy efficiency is achievable only after stabilization**: Generation 11’s extremely low **avg_energy_per_step (0.01)** and high **energy_bonus (2493.83)** resulted from maintaining near-equilibrium once stabilized—whereas failed programs consumed energy chaotically without achieving balance, earning no energy reward despite sometimes completing all steps.
+
+- **Final-state precision is binary in scoring**: Generation 11 achieved near-perfect final errors (**final_theta_error: 0.00**, **final_x_error: 0.01**), unlocking the **success_bonus (800.00)**, while failed programs had final theta errors clustered around **~3.0 rad**—showing that partial progress yields zero reward if the pendulum isn’t upright at termination.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+1. **Refine the friction-aware linearized model by incorporating velocity-dependent Coulomb friction approximations into the A matrix**, replacing constant damping terms with piecewise-linear representations that better capture stick-slip transitions—this directly extends Generation 11’s successful modeling insight while addressing residual steady-state errors observed in high-friction regimes.
+
+2. **Introduce a minimal swing-up pre-phase triggered only when |θ| > 0.85 rad using energy-based pumping (e.g., u = k·sign(θ·dθ)) with hard handoff to the current LQR at |θ| ≤ 0.75 rad**, preserving the proven stabilizer’s integrity while enabling recovery from extreme initial angles like the 0.9 rad used in evaluation—addressing the current program’s limitation without adding fragile blending logic.
+
+3. **Optimize LQR weights via constrained Bayesian optimization focused on maximizing time_bonus and base_score while maintaining stabilization_ratio ≥ 0.4**, leveraging the current Q=[5,30,0.5,2], R=1.0 as a prior; this builds on the conservative tuning success but systematically explores higher-performance trade-offs within the stable regime identified by Generation 11.
+
+4. **Replace Euler integration in the controller’s internal state prediction (not simulation) with a semi-implicit scheme for more accurate feedback computation**, while retaining Euler in the plant simulator—this enhances control law fidelity without destabilizing the system, exploiting the margin provided by conservative gains to improve state estimation for feedback.
+
+5. **Add integral action *only* on the pole angle (θ) to form an LQI extension of the current controller, but clamp the integrator state during large deviations (|θ| > 0.7 rad) to prevent windup**, directly targeting the residual drift caused by high joint friction while respecting the insight that integral augmentation fails when active outside the linear domain.

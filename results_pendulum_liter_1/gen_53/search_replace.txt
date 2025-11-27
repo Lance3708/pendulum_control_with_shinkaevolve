@@ -1,0 +1,63 @@
+Based on the performance analysis, I propose an improvement focused on enhancing the adaptive gain scheduling to better handle the initial large angle (0.9 rad) while maintaining smooth transitions. The current implementation uses separate position and velocity gains, but we can improve it by adding a synergy term that provides extra authority when the pole is moving away from equilibrium.
+
+<NAME>
+enhanced_adaptive_gain_scheduling
+</NAME>
+
+<DESCRIPTION>
+The current adaptive gain scheduling uses separate position and velocity gains but doesn't account for situations where the pole is actively falling away from equilibrium. By adding a synergy term that activates when theta and dtheta have the same sign (indicating the pole is moving further from upright), we can provide extra control authority during critical falling phases. This should help reduce stabilization time while maintaining the smooth, differentiable properties of the current implementation. The synergy term uses tanh for smooth activation and is gated by the angle magnitude to prevent over-activation near equilibrium.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Enhanced adaptive LQR control with synergy gain for falling prevention"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Synergy gain: extra authority when pole is falling away from equilibrium
+        # (theta and dtheta have same sign means moving further from upright)
+        falling_away = theta * dtheta > 0
+        synergy_gain = 1.0 + 0.15 * falling_away * np.tanh(3.0 * abs(theta))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain * synergy_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>
+
+This change adds a synergy term that provides up to 15% additional gain when the pole is actively moving away from the upright position (theta and dtheta have the same sign). The term is smoothly activated using tanh and scales with the angle magnitude, ensuring it's most effective during large deviations while being gentle near equilibrium. This should help the controller react more aggressively during critical falling phases, potentially reducing stabilization time without compromising stability or energy efficiency.

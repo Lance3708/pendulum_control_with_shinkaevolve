@@ -1,0 +1,239 @@
+<NAME>
+three_phase_reflex_controller
+</NAME>
+
+<DESCRIPTION>
+I am proposing a radical redesign of the controller, moving away from complex, continuous mathematical optimizations and towards a simple, rule-based system inspired by human reflexes. This "Three-Phase Reflexive Control" philosophy addresses the challenge's call for a paradigm shift.
+
+The core idea is that a single control law is inefficient for this problem. Instead, the controller identifies which of three distinct phases the system is in and applies a unique, simple strategy for each:
+
+1.  **Phase 1: Emergency Catch:** When the pole is falling hard (large angle or high angular velocity), the controller enters a "panic" mode. Its sole focus is arresting the fall with a powerful, non-linear force. It completely ignores the cart's position, mimicking the human reflex to just "get under the falling object" at all costs.
+
+2.  **Phase 2: Damping & Centering:** Once the immediate danger is over, the strategy shifts. The controller now works to smoothly bleed energy out of the system (both pole swing and cart movement) while gently guiding the cart towards the center. The control actions are balanced to prioritize stability over aggressive positioning.
+
+3.  **Phase 3: Precision Hold:** When the system is near the target state (upright and centered), the controller becomes a "steady hand". It applies minimal, precise forces to counteract friction and drift, maximizing energy efficiency and holding the final position with high precision.
+
+The transition between these phases is governed by a simple "instability metric," a heuristic that measures the overall danger to the system. This approach is intentionally discontinuous, creating decisive shifts in strategy rather than smoothly blending them. It is simple, interpretable, and directly tackles the different physical challenges presented at different stages of the stabilization task, hopefully breaking the performance plateau of previous methods.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class Controller:
+    """
+    Adaptive Cross-Coupled LQR with Mid-Swing Damping and Predictive Compensation
+
+    Key innovations:
+    1. State-dependent cross-coupling in Q-matrix for better coordination
+    2. Mid-swing angular damping to suppress momentum overshoot
+    3. Predictive momentum compensation for earlier counteraction
+    4. Refined integral control with dual gating
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.Mtot = self.M + self.m
+        self.denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
+        self.b_c = FRICTION_CART
+        self.b_j = FRICTION_JOINT
+
+        # Build base A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+        A[3, 1] = self.g / self.denom0
+        A[3, 2] = self.b_c / (self.Mtot * self.denom0)
+        A[3, 3] = -self.b_j / (self.m * self.l * self.denom0)
+        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
+        A[2, 2] = -self.b_c / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
+        A[2, 3] = self.b_j / (self.Mtot * self.denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * self.denom0)
+        B[3, 0] = -1.0 / (self.Mtot * self.denom0)
+
+        # Base Q with proven optimal diagonal weights
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        # Add cross-coupling terms for theta-dtheta coordination
+        Q[1, 3] = 0.8
+        Q[3, 1] = 0.8
+        R = np.array([[1.0]])
+
+        self.A = A
+        self.B = B
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+=======
+class Controller:
+    """
+    A controller based on distinct operational phases, inspired by human reflexes.
+    It switches between strategies depending on the system's state of stability.
+    This avoids a single, complex control law in favor of simple, decisive rules
+    for different situations.
+
+    The three phases are:
+    1. Emergency Catch: When the pole is at a large angle or falling fast. The sole
+       priority is to arrest the fall, ignoring the cart's position. This is a
+       powerful, non-linear response.
+    2. Damping & Centering: When the pole is relatively stable but the system has
+       excess energy (velocity). This phase focuses on bleeding off that energy
+       while gently guiding the cart to the center.
+    3. Precision Hold: When the system is near the target state. The focus shifts
+       to fine, energy-efficient adjustments to counteract friction and drift,
+       holding the system perfectly stable.
+    """
+    def __init__(self):
+        """No complex initialization needed for this rule-based approach."""
+        pass
+
+    def get_action(self, state):
+        """
+        Calculates the control force based on the current phase.
+        """
+        x, theta, dx, dtheta = state
+
+        # --- Phase Definition ---
+        # An "instability metric" determines the current phase. It's a heuristic
+        # combining angle (potential for falling) and angular velocity (kinetic
+        # energy of the fall). The coefficients are tuned based on the pole's
+        # physical properties to define sensible phase boundaries.
+        instability_metric = abs(theta) + 0.3 * abs(dtheta)
+
+        # --- Phase 1: Emergency Catch ---
+        # Triggered by large angles or high angular velocity.
+        if instability_metric > 0.3:
+            # The primary goal is to reverse the fall. This is a powerful PD
+            # controller focused only on the angle.
+            # Force = P_gain * theta + D_gain * dtheta
+            # Gains are high to generate a strong, immediate counter-torque.
+            force = 85.0 * theta + 25.0 * dtheta
+
+            # Add a non-linear "kicker" term. When theta is large, the situation
+            # is more desperate, so we add an exponentially growing force to
+            # ensure recovery. This mimics a human's panic response.
+            kicker = 15.0 * theta * (abs(theta) ** 1.5)
+            force += kicker
+
+        # --- Phase 2: Damping & Centering ---
+        # Active when the pole is under control but the system isn't settled.
+        elif instability_metric > 0.025:
+            # The control law now incorporates all state variables.
+            # It's a combination of two PD controllers: one for the angle,
+            # one for the cart's position.
+
+            # Angle control is still dominant, but with reduced gains.
+            angle_correction = 55.0 * theta + 22.0 * dtheta
+
+            # Position control is introduced to start moving the cart to the
+            # center. Its gains are chosen to be subordinate to angle control,
+            # ensuring that centering efforts don't destabilize the pole.
+            position_correction = 3.5 * x + 4.5 * dx
+
+            force = angle_correction - position_correction
+
+        # --- Phase 3: Precision Hold ---
+        # The final phase for when the system is close to the desired state.
+        else:
+            # Gains are further refined for stability and energy efficiency.
+
+            # Angle correction is gentle, providing just enough force to
+            # counteract drift.
+            angle_correction = 45.0 * theta + 20.0 * dtheta
+
+            # Position correction becomes more assertive relative to angle
+            # correction, as the main task now is to lock the cart at x=0.
+            # The dx gain is higher to strongly damp any cart motion.
+            position_correction = 6.0 * x + 8.0 * dx
+
+            force = angle_correction - position_correction
+
+        return force
+>>>>>>> REPLACE
+</DIFF>

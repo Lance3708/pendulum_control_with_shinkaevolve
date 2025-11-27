@@ -1,0 +1,45 @@
+<NAME>
+adaptive_integral_with_stability_margin
+</NAME>
+
+<DESCRIPTION>
+The key insight is to improve the integral control by making it more context-aware. Instead of simple angle/velocity gating, I'm introducing a stability margin concept that considers both position and angular errors together. This allows the integral action to build up only when the system is truly converging towards stability, preventing windup during aggressive swing-up phases while maintaining precision in the final stabilization. The stability margin combines normalized position and angle errors to create a more robust gate for integral accumulation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+=======
+        # Stability-margin-gated integral action
+        # Only accumulate integral when approaching stable region
+        pos_error_norm = abs(x) / 2.0  # Normalize by typical range
+        angle_error_norm = abs(theta) / 0.5  # Normalize by typical small angle
+        stability_margin = max(0.0, 1.0 - max(pos_error_norm, angle_error_norm))
+
+        integral_gate = np.tanh(8.0 * stability_margin)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95  # Faster decay when not in stable region
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+>>>>>>> REPLACE
+
+</DIFF>

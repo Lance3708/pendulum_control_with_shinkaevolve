@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "Validation failed: Cart moved out of bounds (>10.0m)"
+}

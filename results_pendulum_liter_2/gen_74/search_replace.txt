@@ -1,0 +1,75 @@
+<NAME>
+fix_midswing_damping</NAME>
+<DESCRIPTION>
+Fix mid-swing damping to apply primarily when the pole is returning toward vertical (theta * dtheta < 0) to prevent overshoot, matching high-performing priors. Change gating from diverging to converging using is_returning = 0.5 * (1 - tanh(5 * theta * dtheta)), increase K to 6.0, correct sign to +K * dtheta for proper damping direction, and remove conditional threshold for smoother continuous response. This addresses the reversed logic causing slower stabilization (295 vs 226 steps).
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+            # Enhanced directional damping with phase-plane awareness
+            # Only damp when moving away from vertical (theta*dtheta > 0) and use smooth activation
+            mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+            direction_factor = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))  # 1 when moving away, 0 when returning
+            if direction_factor > 0.6:  # Effectively when moving away
+                K_d_midswing = 4.0  # Slightly increased for better momentum control
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * direction_factor
+                force = force + midswing_damp
+=======
+            # Directional damping: stronger when returning to vertical (theta * dtheta < 0) to suppress overshoot
+            mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+            is_returning = 0.5 * (1.0 - np.tanh(5.0 * theta * dtheta))
+            midswing_damp = 6.0 * dtheta * mid_swing_activation * is_returning
+            force += midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+enhance_integral_control</NAME>
+<DESCRIPTION>
+Refine precision hold integral control per rec4: correct sign to force -= integral_force (was wrong, pushing cart in error direction), add dual soft gates with top prior thresholds, asymmetric position-proportional clip limits [-1.5-0.5x, 1.5-0.5x], faster decay *=0.90 when inactive, multiply integral_force by gate for smooth blending. Use fixed self.K_i instead of adaptive exp. Correct phase3 dtheta damping sign to +0.15 * dtheta consistent with physics. Reduces windup, improves centering (target stable_x_error <0.13), prevents overshoot for faster settling and better precision bonus.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # --- Phase 3: Precision Hold (Small Angles) ---
+        else:
+            # Enhanced integral control with exponential gain scheduling
+            # More aggressive decay near equilibrium to prevent overshoot
+            K_i_adaptive = 0.85 * np.exp(-3.0 * (abs(theta) + 0.8*abs(dtheta)))
+
+            # Dual-gated integral accumulation for better stability
+            angle_condition = abs(theta) < 0.08
+            velocity_condition = abs(dtheta) < 0.3
+            if angle_condition and velocity_condition:
+                self.integral_x += x * DT
+                self.integral_x = np.clip(self.integral_x, -0.8, 0.8)  # Tighter bounds
+            else:
+                self.integral_x *= 0.98  # Slower decay to preserve correction
+
+            integral_force = K_i_adaptive * self.integral_x
+            force = force + integral_force
+
+            # Precision damping tuned for minimal energy usage
+            force = force - 0.3 * dx - 0.15 * dtheta
+=======
+        # --- Phase 3: Precision Hold (Small Angles) ---
+        else:
+            # Dual-gated integral with asymmetric windup and position-aware limits
+            angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                low = -1.5 - 0.5 * x
+                high = 1.5 - 0.5 * x
+                self.integral_x = np.clip(self.integral_x, low, high)
+            else:
+                self.integral_x *= 0.90
+
+            integral_force = self.K_i * integral_gate * self.integral_x
+            force -= integral_force
+
+            # Precision damping (consistent signs: -dx for cart, +dtheta for pole)
+            force -= 0.3 * dx
+            force += 0.15 * dtheta
+>>>>>>> REPLACE
+</DIFF>

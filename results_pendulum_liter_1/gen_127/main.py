@@ -1,0 +1,224 @@
+import numpy as np
+
+# --- Physics Constants ---
+M_CART = 1.0       # Mass of the cart (kg)
+M_POLE = 0.35      # Mass of the pole (kg) - 更重，大幅增加控制难度
+L_POLE = 2.5       # Total length of the pole (m) - 更长，极不稳定
+L_COM = L_POLE / 2 # Length to center of mass (m)
+G = 9.81           # Gravity (m/s^2)
+FRICTION_CART = 0.35 # Coefficient of friction for cart - 高摩擦，更多能量损失
+FRICTION_JOINT = 0.25 # Coefficient of friction for joint - 高关节摩擦
+DT = 0.02          # Time step (s)
+MAX_STEPS = 1000   # 20 seconds simulation
+
+def simulate_pendulum_step(state, force, dt):
+    """
+    Simulates one time step of the Single Inverted Pendulum.
+
+    State vector: [x, theta, dx, dtheta]
+    - x: Cart position (m)
+    - theta: Pole angle (rad), 0 is upright
+    - dx: Cart velocity (m/s)
+    - dtheta: Pole angular velocity (rad/s)
+
+    Args:
+        state: numpy array of shape (4,)
+        force: scalar float, force applied to the cart (N)
+        dt: float, time step (s)
+
+    Returns:
+        next_state: numpy array of shape (4,)
+    """
+    x, theta, dx, dtheta = state
+
+    # Precompute trig terms
+    sin_theta = np.sin(theta)
+    cos_theta = np.cos(theta)
+
+    # Equations of Motion (Non-linear)
+    # derived from Lagrangian dynamics
+
+    # Total mass
+    M_total = M_CART + M_POLE
+
+    # Friction forces
+    f_cart = -FRICTION_CART * dx
+    f_joint = -FRICTION_JOINT * dtheta
+
+    # Denominator for solving linear system of accelerations
+    # Derived from solving the system:
+    # 1) (M+m)x_dd + (ml cos)theta_dd = F + f_cart + ml*theta_d^2*sin
+    # 2) (ml cos)x_dd + (ml^2)theta_dd = mgl sin + f_joint
+
+    temp = (force + f_cart + M_POLE * L_COM * dtheta**2 * sin_theta) / M_total
+
+    theta_acc = (G * sin_theta - cos_theta * temp + f_joint / (M_POLE * L_COM)) / \
+                (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / M_total))
+
+    x_acc = temp - (M_POLE * L_COM * theta_acc * cos_theta) / M_total
+
+    # Euler integration
+    next_x = x + dx * dt
+    next_theta = theta + dtheta * dt
+    next_dx = dx + x_acc * dt
+    next_dtheta = dtheta + theta_acc * dt
+
+    return np.array([next_x, next_theta, next_dx, next_dtheta])
+
+
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Discrete LQR Controller with Energy-Aware Swing-Up and Adaptive Integral Control
+    
+    Key innovations:
+    1. Discrete-time LQR using zero-order hold to match Euler integration dynamics
+    2. Energy-based swing-up activation prevents unnecessary force application
+    3. Adaptive integral decay becomes more aggressive when pole is far from upright
+    4. Maintains proven optimal Q-matrix weights from best performers
+    """
+
+    def __init__(self):
+        # System parameters
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Continuous-time system matrices
+        A_cont = np.zeros((4, 4))
+        A_cont[0, 2] = 1.0
+        A_cont[1, 3] = 1.0
+        A_cont[3, 1] = g / denom0
+        A_cont[3, 2] = b_c / (Mtot * denom0)
+        A_cont[3, 3] = -b_j / (m * l * denom0)
+        A_cont[2, 1] = -(m * l / Mtot) * A_cont[3, 1]
+        A_cont[2, 2] = -b_c / Mtot - (m * l / Mtot) * A_cont[3, 2]
+        A_cont[2, 3] = b_j / (Mtot * denom0)
+
+        B_cont = np.zeros((4, 1))
+        B_cont[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B_cont[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Discretize using zero-order hold to match Euler integration
+        A_disc = np.eye(4) + A_cont * DT
+        B_disc = B_cont * DT
+
+        # Proven optimal LQR weights from best performers
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        R = np.array([[1.0]])
+
+        # Solve discrete-time LQR
+        self.K = self.solve_dlqr(A_disc, B_disc, Q, R)
+        
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.8
+        
+        # Energy calculation parameters
+        self.upright_energy = M_POLE * G * L_COM  # Potential energy at upright
+        self.energy_threshold = 0.85  # Assist when energy < 85% of upright
+
+    def solve_dlqr(self, A, B, Q, R):
+        """Solve discrete-time LQR using algebraic Riccati equation"""
+        from scipy.linalg import solve_discrete_are
+        P = solve_discrete_are(A, B, Q, R)
+        K = np.linalg.inv(R + B.T @ P @ B) @ B.T @ P @ A
+        return K
+
+    def get_action(self, state):
+        """Discrete LQR with energy-aware swing-up and adaptive integral control"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Proven optimal gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+
+        # Energy-aware swing-up assist
+        if abs(theta) > 0.8:
+            # Calculate current energy (kinetic + potential)
+            kinetic_energy = 0.5 * M_POLE * (dtheta * L_COM)**2
+            potential_energy = M_POLE * G * L_COM * (1 - np.cos(theta))
+            current_energy = kinetic_energy + potential_energy
+            
+            # Only assist if energy deficit is significant
+            if current_energy < self.energy_threshold * self.upright_energy:
+                swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+                
+                # Enhanced normalized falling severity with sign preservation
+                angular_momentum = theta * dtheta
+                natural_freq = np.sqrt(G / L_COM)
+                normalized_severity = angular_momentum / (L_COM * natural_freq)
+                falling_severity = 1.0 + np.tanh(3.0 * normalized_severity)
+                
+                u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+                force = force + u_swing
+
+        # Adaptive integral control for cart position
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+        else:
+            # Adaptive decay: more aggressive when pole is far from upright
+            decay_factor = 0.95 ** (1 + 5 * np.tanh(8 * abs(theta)))
+            self.integral_x *= decay_factor
+            
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    force = controller.get_action(state)
+    return float(np.clip(force, -100.0, 100.0))
+# EVOLVE-BLOCK-END
+
+def run_simulation(seed=None):
+    """
+    Runs the simulation loop.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Initial state: 0.4 rad (~23 degrees)
+    # 更大初始角度配合更重更长的杆子，极具挑战性
+    state = np.array([0.0, 0.9, 0.0, 0.0])
+
+    states = [state]
+    forces = []
+
+    for _ in range(MAX_STEPS):
+        force = get_control_action(state)
+        # Clip force to realistic limits
+        force = np.clip(force, -100.0, 100.0)
+
+        next_state = simulate_pendulum_step(state, force, DT)
+
+        states.append(next_state)
+        forces.append(force)
+
+        state = next_state
+
+        # # Early termination checks
+        # if np.any(np.isnan(state)):
+        #     break
+        # # Fail fast if it falls over (> 1.0 rad, matching evaluate.py)
+        # if abs(state[1]) > 1.0:
+        #     break
+
+    return np.array(states), np.array(forces)

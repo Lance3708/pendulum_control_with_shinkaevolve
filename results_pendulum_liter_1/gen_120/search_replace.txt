@@ -1,0 +1,75 @@
+<NAME>increase_dtheta_q_weight</NAME>
+<DESCRIPTION>Slightly increase angular velocity weight in Q-matrix from 3.2 to 3.28 to enhance damping of post-swing-down oscillations. This reduces stable_x_error closer to zero, accelerates final convergence by a few steps, and improves base_score precision without measurable energy increase, per historical tuning data.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: use best-performing Q matrix from prior experiments
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])  # Proven to achieve 4920+ score
+=======
+        # Optimized LQR weights: refined angular velocity damping for better precision
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])  # Slight dtheta increase reduces overshoot
+>>>>>>> REPLACE
+</DIFF>
+<NAME>robust_arctan2_angle_norm</NAME>
+<DESCRIPTION>Switch to np.arctan2(np.sin(theta), np.cos(theta)) for angle normalization. Guarantees accurate [-pi, pi] wrapping and robust abs(theta) estimation even under rapid angular transients or accumulation, improving gain scheduling and swing-up reliability without discontinuities.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+=======
+        # Robust angle normalization using arctan2
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+>>>>>>> REPLACE
+</DIFF>
+<NAME>continuous_normalized_falling_severity</NAME>
+<DESCRIPTION>Replace binary falling_factor and abs(norm_momentum) with continuous falling_severity = 1.0 + tanh(3.0 * norm_momentum). Leverages dimensionless normalized angular momentum for smooth, physics-aware scaling tailored to long pole's dynamics, boosting swing-up efficiency and reducing transient time.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+            # Normalized divergence metric: angular momentum scaled by natural frequency
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            # Smooth activation based on angle deviation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Increase assist if pole is falling further (same sign)
+            falling_factor = 1.0 + 0.5 * float(theta * dtheta > 0)
+            # Additive assist force
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor * np.abs(norm_momentum)
+            force += u_swing
+=======
+            # Normalized divergence metric: angular momentum scaled by natural frequency
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            # Smooth activation based on angle deviation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Continuous falling severity: tanh for differentiable divergence scaling
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+            # Additive assist force
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force += u_swing
+>>>>>>> REPLACE
+</DIFF>
+<NAME>add_soft_integral_x_action</NAME>
+<DESCRIPTION>Add soft-switched integral control on cart position, gated strictly by tanh(12*(0.1-abs(theta))) on both update and output with conservative ki=0.05 and clip. Targets residual stable_x_error=0.03m to zero for higher base_score/success_bonus precision, activating only post-stabilization to avoid transient disruption.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Natural frequency of pendulum for normalization
+        self.omega_n = np.sqrt(G / L_COM)
+=======
+        # Natural frequency of pendulum for normalization
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Soft integral state for eliminating cart position steady-state error
+        self.integral_x = 0.0
+        self.K_i = 0.05
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        return float(force[0])
+=======
+        # Soft-switched integral action: activates only when nearly upright
+        gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        self.integral_x += x * DT * gate
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= self.K_i * self.integral_x * gate
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

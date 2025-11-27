@@ -1,0 +1,62 @@
+Looking at the performance metrics, I notice that the current best performer achieves a stabilization time of 190 steps with `stable_x_error: 0.05`, while the current program has 191 steps and `stable_x_error: 0.06`. The key insight is that the time bonus is the dominant factor (~2240 points), so reducing stabilization time by even 1 step can yield significant gains.
+
+Analyzing the differences between the top performer (4933.93 score) and the current program:
+1. The top performer uses Q[3]=3.2 instead of 3.4
+2. The top performer uses simpler angle-only integral gating (not joint angle-velocity)
+3. The top performer uses modulo-based angle normalization instead of arctan2
+
+The joint angle-velocity gating in the current program may be too restrictive, delaying integral action activation and slowing cart centering. Let me propose a targeted modification that combines the best elements:
+
+<NAME>
+simplified_integral_gating_with_optimal_damping
+</NAME>
+
+<DESCRIPTION>
+This change reverts to the simpler angle-only integral gating that achieved the best performance (4933.93), while keeping the proven Q[3]=3.2 damping value. The joint velocity gating was overly conservative, preventing integral action from activating promptly when the pole is upright but still moving slightly. By removing the velocity gate and using the simpler decay rate (0.95), we allow faster cart centering while maintaining stability. Additionally, reverting Q[3] from 3.4 to 3.2 matches the optimal damping that achieved 190-step stabilization.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced LQR weights with increased angular velocity damping for faster settling
+        Q = np.diag([4.5, 44.0, 0.6, 3.4])
+=======
+        # Proven optimal LQR weights (Q[3]=3.2 achieves best performance)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position with joint angle-velocity gating
+        # Only activates when pole is nearly upright AND moving slowly
+        # This prevents premature activation during fast transient passes through upright
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            # Dynamic decay: stronger when angle is large, gentler near equilibrium
+            decay_rate = 0.90 + 0.08 * np.exp(-10.0 * abs(theta))
+            self.integral_x *= decay_rate
+=======
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (<0.1 rad)
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Robust angle normalization using arctan2
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+=======
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+>>>>>>> REPLACE
+</DIFF>

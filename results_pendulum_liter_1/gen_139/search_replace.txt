@@ -1,0 +1,40 @@
+<adaptive_integral_gating>
+I'll implement an improved integral control strategy that uses both angle and angular velocity for gating, which should reduce integral windup during fast transient movements while maintaining precision near equilibrium.
+</adaptive_integral_gating>
+
+<DESCRIPTION>
+The key insight is that integral control should not only consider the angle being small (near upright), but also ensure the angular velocity is low to prevent windup during fast swings through the upright position. I'll modify the integral gating mechanism to use a joint condition based on both angle and angular velocity. This should reduce the stable_x_error while maintaining stability.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (<0.1 rad)
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        # Soft-switched integral action for cart position with joint angle-velocity gating
+        # Only activates when pole is nearly upright AND moving slowly
+        # This prevents premature activation during fast transient passes through upright
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            # Dynamic decay: stronger when angle is large, gentler near equilibrium
+            decay_rate = 0.90 + 0.08 * np.exp(-10.0 * abs(theta))
+            self.integral_x *= decay_rate
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+>>>>>>> REPLACE
+
+</DIFF>

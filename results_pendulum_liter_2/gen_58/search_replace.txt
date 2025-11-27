@@ -1,0 +1,55 @@
+
+
+<direct_position_feedback_enhancement>
+Enhancing position control with direct feedback when stable and refining integral control for better centering.
+</direct_position_feedback_enhancement>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+
+        return float(force[0])
+=======
+        # Enhanced dual-gated integral action with adaptive gain
+        angle_gate = np.tanh(12.0 * (0.15 - abs(theta)))  # Wider gate for position control
+        velocity_gate = np.tanh(8.0 * (1.2 - abs(dtheta)))  # Wider gate for position control
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive integral gain - stronger when closer to equilibrium
+        K_i_adaptive = self.K_i * (1.0 + np.tanh(3.0 * (0.1 - abs(theta))))
+
+        if integral_gate > 0.05:  # Lower threshold for activation
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -2.0, 2.0)  # Wider range
+        else:
+            self.integral_x *= 0.96  # Slower decay for better memory
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+
+        # Direct position correction when pole is very stable
+        # This helps reduce final position error
+        stability_metric = np.exp(-15.0 * (theta**2 + 0.5 * dtheta**2))
+        if stability_metric > 0.5:  # When very close to upright and stable
+            # Proportional and derivative position correction
+            position_correction = -0.7 * x * stability_metric - 0.3 * dx * stability_metric
+            force = force + position_correction
+
+        return float(force[0])
+>>>>>>> REPLACE
+
+</DIFF>

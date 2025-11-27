@@ -1,0 +1,34 @@
+<name>
+swing_up_assist_for_large_angles
+</name>
+
+<description>
+Based on analysis of the top-performing programs, I'm adding a physics-informed swing-up assist mechanism for large angles (>0.8 rad). This addresses the challenge of stabilizing the extremely long and heavy pendulum when starting from larger initial angles. The assist uses a continuous falling severity factor that scales based on how rapidly the pole is moving away from equilibrium, providing more corrective force when needed most. This approach leverages physical insight about the system dynamics while maintaining smooth, differentiable control laws that work well with the existing LQR framework.
+</description>
+
+<DIFF>
+<<<<<<< SEARCH
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+
+# Initialize controller
+=======
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist for large angles (>0.8 rad)
+        # Uses continuous falling-severity factor for smoother, more effective correction
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Continuous falling severity: scales from 1.0 to 2.0 based on how rapidly pole is falling
+            falling_severity = 1.0 + np.tanh(3.0 * theta * dtheta)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+
+        return float(force[0])
+
+# Initialize controller
+>>>>>>> REPLACE
+
+</DIFF>

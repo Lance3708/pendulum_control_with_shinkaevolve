@@ -1,0 +1,167 @@
+database_config:
+  archive_size: 40
+  db_path: results_pendulum_liter/evolution_db.sqlite
+  elite_selection_ratio: 0.3
+  embedding_model: text-embedding-3-small
+  enforce_island_separation: true
+  exploitation_alpha: 1.0
+  exploitation_ratio: 0.2
+  island_elitism: true
+  migration_interval: 10
+  migration_rate: 0.1
+  num_archive_inspirations: 4
+  num_beams: 5
+  num_islands: 2
+  num_top_k_inspirations: 3
+  parent_selection_lambda: 10.0
+  parent_selection_strategy: weighted
+evolution_config:
+  code_embed_sim_threshold: 0.995
+  embedding_model: gemini-embedding-001
+  init_program_path: initial.py
+  job_type: local
+  language: python
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 2
+  llm_kwargs:
+    max_tokens: 16384
+    reasoning_efforts:
+    - auto
+    - high
+    temperatures:
+    - 0.0
+    - 0.5
+    - 1.0
+  llm_models:
+  - deepseek-reasoner
+  - claude-opus-4-5
+  - gemini-2.5-pro
+  - gemini-3-pro-preview
+  - xai/grok-4-1-fast-reasoning
+  - glm-4.5
+  - glm-4.6
+  - dashscope/qwen3-coder-plus
+  - dashscope/qwen-plus-2025-07-28
+  max_novelty_attempts: 3
+  max_parallel_jobs: 8
+  max_patch_attempts: 2
+  max_patch_resamples: 3
+  meta_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0.0
+  meta_llm_models:
+  - dashscope/qwen3-max
+  meta_max_recommendations: 5
+  meta_rec_interval: 5
+  novelty_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0.0
+  novelty_llm_models:
+  - gemini-3-pro-preview
+  num_generations: 400
+  patch_type_probs:
+  - 0.6
+  - 0.3
+  - 0.1
+  patch_types:
+  - diff
+  - full
+  - cross
+  results_dir: results_pendulum_liter
+  task_sys_msg: "You are a creative problem solver designing a control system for\
+    \ an extremely unstable physical system.\n\n**The Physical Challenge:**\nYou have\
+    \ a heavy rod (0.35 kg, 2.5 m long) balanced on a sliding cart (1.0 kg).\n- The\
+    \ rod starts tilted at 23 degrees - it's actively falling\n- High friction everywhere\
+    \ (cart: 0.35, joint: 0.25) - energy bleeds away constantly\n- The rod is EXTREMELY\
+    \ long and heavy - conventional approaches struggle here\n\n**Your Mission:**\n\
+    Make the rod stand perfectly vertical (0\xB0) with the cart centered (position\
+    \ 0), with everything motionless.\nDo it FAST and with MINIMAL energy.\n\n**What\
+    \ You Know Each Moment:**\n- `state = [x, theta, dx, dtheta]`\n  - x: where the\
+    \ cart is (meters)\n  - theta: how tilted the rod is (radians, 0 = perfectly up)\n\
+    \  - dx: how fast the cart is moving\n  - dtheta: how fast the rod is rotating\n\
+    \n**What You Control:**\n- Push force on cart: -100 to +100 Newtons\n- You return\
+    \ ONE number each timestep\n\n**Hard Limits (instant failure):**\n- Rod tilts\
+    \ beyond 57\xB0 (1.0 rad)\n- Cart goes beyond \xB110 meters\n\n**Scoring (~7300\
+    \ points possible):**\n- Stability quality: ~500-800\n- Speed bonus: up to +3000\
+    \ (faster = better)\n- Energy efficiency: up to +2500 (less force = better)  \n\
+    - Precision bonus: up to +800 (closer to perfect = better)\n\n**Performance Context:**\n\
+    - Naive approach: ~2500-4000 points\n- Good solution: ~5000-6500 points\n- Exceptional:\
+    \ ~6800-7200 points\n\n---\n\n## \U0001F6AB MANDATORY CONSTRAINTS - READ CAREFULLY\n\
+    \n**Your solution will be AUTOMATICALLY REJECTED if:**\n1. You use terms: \"LQR\"\
+    , \"Riccati\", \"Q matrix\", \"R matrix\", \"optimal control\"\n2. You compute\
+    \ matrix multiplications for control gains\n3. Your code references any textbook\
+    \ control method by name\n\n**Why these restrictions?**\n180 previous attempts\
+    \ all converged to the same mathematical framework, plateauing at ~5000 points.\n\
+    This suggests a fundamental limitation. We need a PARADIGM SHIFT, not incremental\
+    \ tuning.\n\n---\n\n## \U0001F4AD THINK DIFFERENTLY - Thought Experiments\n\n\
+    **Physical Intuition:**\n- When you balance a broomstick on your hand, do you\
+    \ solve differential equations?\n- What do you actually DO? You move your hand\
+    \ toward where the stick is falling\n- You react FAST when it's falling, GENTLE\
+    \ when it's nearly balanced\n- You \"feel\" the urgency differently at different\
+    \ moments\n\n**The Three Challenges (they may need different solutions):**\n1.\
+    \ **Emergency Response** (rod falling fast): What matters most RIGHT NOW?\n2.\
+    \ **Convergence Phase** (getting close): What's the priority here?\n3. **Precision\
+    \ Hold** (nearly perfect): What's different about this moment?\n\n**Questions\
+    \ to Explore:**\n- What if control should be DISCONTINUOUS? (different rules for\
+    \ different situations)\n- What if you should react to COMBINATIONS of states,\
+    \ not individual values?\n- What if the \"right\" force depends on WHICH DIRECTION\
+    \ things are moving?\n- What if you need MEMORY? (what just happened affects what\
+    \ you do now)\n- What if SIMPLICITY beats complexity? (3 rules vs 300 calculations)\n\
+    \n**Biological Inspiration (not literal implementation):**\n- Reflexes: instant,\
+    \ local, no computation\n- Attention: focus on what's most critical RIGHT NOW\n\
+    - Prediction: anticipate where things are going, not just where they are\n- Adaptation:\
+    \ behavior changes as situation evolves\n\n---\n\n## \U0001F3AF DESIGN CHALLENGES\
+    \ (pick your approach)\n\n**Challenge A: The Minimalist**\nCan you achieve high\
+    \ performance with RADICAL SIMPLICITY?\n- Express your control law in under 15\
+    \ lines of actual logic\n- No matrix operations, no complex math\n- Pure if-then\
+    \ logic and basic arithmetic\n- Bonus: Can you make it INTERPRETABLE? (human can\
+    \ understand why it works)\n\n**Challenge B: The Phase Thinker**\nThe problem\
+    \ has DISTINCT PHASES with different physics:\n- Phase 1: Falling emergency (high\
+    \ angular velocity)\n- Phase 2: Swing-through (rod passing vertical) \n- Phase\
+    \ 3: Fine positioning (nearly balanced)\n- Phase 4: Drift correction (staying\
+    \ perfect)\n\nCan you design COMPLETELY DIFFERENT control rules for each phase?\n\
+    Don't blend them smoothly - make them DISTINCT strategies.\n\n**Challenge C: The\
+    \ Pattern Matcher**\nWhat if you classify the situation into DISCRETE SCENARIOS?\n\
+    - \"Falling left, cart moving right, far from center\"\n- \"Nearly vertical, cart\
+    \ drifting left, low velocity\"\n- etc.\n\nDesign specific responses for each\
+    \ scenario pattern.\n\n**Challenge D: The Predictor**\nYou know the current state.\
+    \ Where will it be in 0.1 seconds? 0.5 seconds?\n- Can you push the cart to where\
+    \ it NEEDS TO BE, not where it IS?\n- Can you counteract momentum BEFORE it becomes\
+    \ a problem?\n- Can you \"aim\" for a future state?\n\n**Challenge E: The Energy\
+    \ Shaper**\nThe system has kinetic and potential energy.\n- When should you ADD\
+    \ energy? When REMOVE it?\n- Can you think in terms of energy flow rather than\
+    \ position/angle?\n- What energy state do you want the system in?\n\n**Challenge\
+    \ F: The Rule-Based System**\nCreate a decision tree or rule set:\nIF (critical_condition):\n\
+    emergency_response()\nELIF (another_pattern):\ndifferent_strategy()\n...\n\n\n\
+    Make the rules CRISP and DECISIVE, not smooth and blended.\n\n---\n\n## \U0001F525\
+    \ ANTI-PATTERNS TO AVOID\n\n\u274C \"I'll start with LQR and add features\" -\
+    \ NO. Start from scratch.\n\u274C \"Let me tune these 8 parameters\" - NO. Design\
+    \ the STRUCTURE first.\n\u274C \"I'll blend multiple controllers smoothly\" -\
+    \ MAYBE NOT. Try sharp transitions.\n\u274C \"More complexity = better performance\"\
+    \ - WRONG. Simplicity might win.\n\u274C \"I need to be mathematically optimal\"\
+    \ - NO. You need to be EFFECTIVE.\n\n---\n\n## \u2705 WHAT SUCCESS LOOKS LIKE\n\
+    \n**Your implementation should:**\n1. Have a CLEAR PHILOSOPHY you can explain\
+    \ in one sentence\n2. Show DISTINCT BEHAVIOR in different situations (not just\
+    \ scaled responses)\n3. Be DECISIVE (strong actions when needed, not timid)\n\
+    4. Potentially be SIMPLE enough that a human could execute it\n\n**Example philosophies\
+    \ (don't copy, but this is the spirit):**\n- \"Always push toward where the rod\
+    \ is falling, scaled by urgency\"\n- \"Three modes: panic (save it), guide (bring\
+    \ it vertical), hold (stay perfect)\"\n- \"Predict where the rod will be, position\
+    \ cart there in advance\"\n- \"Match cart acceleration to rod's angular acceleration\
+    \ with smart scaling\"\n\n---\n\n## \U0001F4DD YOUR TASK\n\nImplement: `get_control_action(state)\
+    \ -> float`\n\n**Before you code, decide:**\n1. What's your core philosophy?\n\
+    2. What distinct situations will you handle differently?\n3. What's the SIMPLEST\
+    \ version of your idea?\n\n**Then code it.**\n\nBe bold. Be weird. Break the mold.\n\
+    The system is waiting for a fresh perspective.\n\n\U0001F680 **Remember: 180 attempts\
+    \ used similar math. Be the 181st that tries something truly different.**\n"
+  use_text_feedback: false
+job_config:
+  conda_env: null
+  eval_program_path: evaluate.py
+  extra_cmd_args: {}
+  time: null
+results_directory: results_pendulum_liter
+timestamp: '2025-11-26T05:16:28.521913'

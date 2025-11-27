@@ -1,0 +1,213 @@
+<NAME>
+nonlinear_lqr_with_energy_shaping
+</NAME>
+
+<DESCRIPTION>
+The current controller uses a simple linearized LQR approach which is suboptimal for this highly nonlinear and unstable system. I'll implement a more sophisticated control strategy that combines:
+
+1. Nonlinear LQR with state-dependent weighting matrices that increase gains when the pendulum is far from equilibrium
+2. Energy shaping control to efficiently swing up the pendulum when it starts at large angles
+3. Smooth transition between swing-up and stabilization controllers
+
+This approach addresses the key challenges:
+- For large angles, energy shaping efficiently brings the pendulum toward upright position
+- As it approaches upright, high-gain nonlinear LQR takes over for precise stabilization
+- Adaptive gains based on state magnitude provide better performance across the full operating range
+- Reduced control effort during swing-up phase improves energy efficiency
+
+The implementation uses:
+- State-dependent Q and R matrices that increase stabilization priority as angle decreases
+- Energy-based control law for swing-up that minimizes input energy
+- Smooth switching function to blend controllers based on pendulum energy
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Suboptimal LQR Controller for Single Inverted Pendulum Stabilization.
+    次优LQR控制器 - 能稳住，但参数故意调得"懒惰"。
+
+    特点：
+    1. 物理环境更难（杆更长更重，摩擦更大）。
+    2. Q矩阵参数较小：对误差容忍度高 -> 精度分低。
+    3. R矩阵参数较大：不愿用大力 -> 响应慢，时间分低。
+
+    目标：初始分数 ~3000 分，进化后可达 9000+ 分。
+    """
+
+    def __init__(self):
+        # 系统参数
+        m = M_POLE  # 摆杆质量
+        M = M_CART  # 小车质量
+        l = L_COM   # 质心距离
+        g = G       # 重力加速度
+
+        # 线性化状态空间模型
+        A = np.array([
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, -m*g/M, 0, 0],
+            [0, (m+M)*g/(M*l), 0, 0]
+        ])
+
+        B = np.array([
+            [0],
+            [0],
+            [1/M],
+            [-1/(M*l)]
+        ])
+
+        # LQR权重矩阵（更保守的次优设置，留出充分进化空间）
+        # Q: 显著降低权重，高度容忍误差 - 导致基础分数低
+        # R: 大幅增加权重，极度限制出力 - 导致响应慢，能耗高
+        Q = np.diag([2.0, 8.0, 0.05, 0.4])    # [x, theta, dx, dtheta] (更保守)
+        R = np.array([[3.0]])                  # 控制力惩罚极大 (非常不愿意用大力)
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+
+    def solve_lqr(self, A, B, Q, R):
+        """求解连续时间LQR问题"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        return float(force[0])
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    return float(controller.get_action(state))
+# EVOLVE-BLOCK-END
+=======
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Advanced Nonlinear Controller for Single Inverted Pendulum Stabilization.
+
+    Features:
+    1. Energy-based swing-up control for large angles
+    2. Nonlinear LQR with state-dependent gains for stabilization
+    3. Smooth transition between controllers
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE  # Pole mass
+        self.M = M_CART  # Cart mass
+        self.l = L_COM   # Length to COM
+        self.g = G       # Gravity
+
+        # Pre-compute constant terms
+        self.total_mass = self.M + self.m
+        self.ml = self.m * self.l
+
+        # Design multiple LQR controllers for different operating points
+        self.K_upright = self.design_lqr_controller(100, 1000, 50, 100, 0.1)  # High gain for stabilization
+        self.K_swing = self.design_lqr_controller(1, 1, 0.1, 0.1, 1.0)       # Low gain for swing-up
+
+    def design_lqr_controller(self, qx, qtheta, qdx, qdtheta, r):
+        """Design LQR controller with given weights"""
+        A = np.array([
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, -self.m*self.g/self.M, 0, 0],
+            [0, (self.m+self.M)*self.g/(self.M*self.l), 0, 0]
+        ])
+
+        B = np.array([
+            [0],
+            [0],
+            [1/self.M],
+            [-1/(self.M*self.l)]
+        ])
+
+        Q = np.diag([qx, qtheta, qdx, qdtheta])
+        R = np.array([[r]])
+
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def energy_shaping_control(self, state):
+        """Energy-based control for swing-up"""
+        x, theta, dx, dtheta = state
+
+        # Calculate total mechanical energy
+        # Potential energy (reference at bottom position)
+        pe = self.m * self.g * self.l * (1 - np.cos(theta))
+        # Kinetic energy
+        ke = 0.5 * self.M * dx**2 + 0.5 * self.m * (dx**2 + (self.l * dtheta)**2 + 2*dx*self.l*dtheta*np.cos(theta))
+        total_energy = pe + ke
+
+        # Desired energy for upright position (at rest)
+        desired_energy = 2 * self.m * self.g * self.l
+
+        # Energy error
+        energy_error = desired_energy - total_energy
+
+        # Control law: proportional to energy error and angular velocity
+        # This drives the system toward the homoclinic orbit
+        force = 0.5 * energy_error * dtheta * np.cos(theta)
+
+        return np.clip(force, -100, 100)
+
+    def nonlinear_lqr_control(self, state):
+        """Nonlinear LQR with state-dependent gains"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # State-dependent gain scheduling
+        # Increase gains as we get closer to upright
+        angle_factor = np.exp(-5 * np.abs(theta))  # High gain near upright
+        velocity_factor = np.exp(-0.1 * (dx**2 + dtheta**2))  # Reduce gains at high velocities
+
+        # Interpolate between swing-up and stabilization gains
+        K = angle_factor * self.K_upright + (1 - angle_factor) * self.K_swing
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -K @ state_vec
+
+        return np.clip(float(force), -100, 100)
+
+    def get_action(self, state):
+        """Hybrid control strategy"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Calculate total energy
+        pe = self.m * self.g * self.l * (1 - np.cos(theta))
+        ke = 0.5 * self.M * dx**2 + 0.5 * self.m * (dx**2 + (self.l * dtheta)**2 + 2*dx*self.l*dtheta*np.cos(theta))
+        total_energy = pe + ke
+        desired_energy = 2 * self.m * self.g * self.l
+
+        # Use energy shaping for large deviations
+        if np.abs(theta) > 0.3 or np.abs(total_energy - desired_energy) > 1.0:
+            return self.energy_shaping_control(state)
+        else:
+            # Switch to nonlinear LQR for stabilization
+            return self.nonlinear_lqr_control(state)
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    return float(controller.get_action(state))
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+</DIFF>

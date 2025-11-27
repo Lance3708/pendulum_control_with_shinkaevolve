@@ -1,0 +1,62 @@
+<NAME>
+enhanced_integral_control_with_dynamic_gating
+</NAME>
+
+<DESCRIPTION>
+I'm implementing a more sophisticated integral control mechanism that uses dynamic gating based on both angle and angular velocity. This approach addresses the key limitation of current integral control which can cause windup during rapid swings through the upright position. The new method:
+
+1. Uses a joint angle-angular velocity gate to prevent premature integral activation
+2. Implements angle-proportional integral decay to eliminate windup during large deviations
+3. Adds anti-windup clamping to limit integral growth
+4. Uses a refined integral gain that balances steady-state error elimination with system stability
+
+This should reduce the stable_x_error from 0.05 to below 0.03 while maintaining system stability, leading to higher success bonuses and overall score improvement.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Integral control state for eliminating steady-state cart position error
+        self.integral_x = 0.0
+        self.K_i = 0.75  # Integral gain - slightly lower than 0.8 to reduce overshoot
+=======
+        # Integral control state for eliminating steady-state cart position error
+        self.integral_x = 0.0
+        self.K_i = 0.8  # Increased integral gain for better steady-state error elimination
+>>>>>>> REPLACE
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright to eliminate steady-state error
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            # Anti-windup: limit integral magnitude
+            self.integral_x = np.clip(self.integral_x, -2.0, 2.0)
+        else:
+            # Leaky integration when inactive to prevent accumulation
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        # Soft-switched integral action for cart position with enhanced gating
+        # Only activates when pole is nearly upright AND moving slowly to prevent windup
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            # Anti-windup: limit integral magnitude
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            # Angle-proportional decay: stronger decay when angle is large
+            decay_rate = 0.85 + 0.15 * np.exp(-8.0 * max(0.0, abs(theta) - 0.1))
+            self.integral_x *= decay_rate
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+>>>>>>> REPLACE
+
+</DIFF>

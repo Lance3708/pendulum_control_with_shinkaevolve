@@ -1,0 +1,65 @@
+<NAME>
+physics_based_predictive_observer
+</NAME>
+
+<DESCRIPTION>
+This edit implements a physics-based predictive observer to enhance the momentum compensation. The key insight is to create a more accurate model of the system's future state by explicitly computing the angular acceleration and using it to predict the pole's motion. This allows for more precise anticipatory control actions. The observer computes both the current and predicted angular acceleration using the full nonlinear dynamics, then uses this to calculate a corrective force that counteracts predicted divergence. This approach directly addresses the system's inherent instability by acting before deviations become significant.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced predictive momentum compensation
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Estimate acceleration using physics model (temp term matches x_acc approx)
+        # Using current proposed force
+        estimated_x_acc_term = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+
+        # Calculate expected angular acceleration
+        denom = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_x_acc_term - self.b_j * dtheta / (self.m * self.l)) / denom
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        # If theta * dtheta_pred > 0, system is diverging. We need MORE corrective force.
+        # LQR gives Force propto theta. We add to it.
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = 0.15 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Enhanced predictive momentum compensation with physics-based observer
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Physics-based predictive observer for enhanced anticipation
+        # Compute current angular acceleration using full nonlinear model
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        centrifugal_term = self.m * self.l * dtheta**2 * sin_theta
+        temp_current = (force[0] + f_cart + centrifugal_term) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+        theta_acc_current = (self.g * sin_theta - cos_theta * temp_current + f_joint / (self.m * self.l)) / denominator
+
+        # Predict state 0.04s (2 timesteps) into future using Euler integration
+        theta_pred = theta + dtheta * 0.04
+        dtheta_pred = dtheta + theta_acc_current * 0.04
+        sin_theta_pred = np.sin(theta_pred)
+        cos_theta_pred = np.cos(theta_pred)
+
+        # Estimate future centrifugal term and temp for prediction
+        centrifugal_pred = self.m * self.l * dtheta_pred**2 * sin_theta_pred
+        temp_pred = (force[0] + f_cart + centrifugal_pred) / self.Mtot
+
+        # Calculate predicted angular acceleration
+        theta_acc_pred = (self.g * sin_theta_pred - cos_theta_pred * temp_pred + f_joint / (self.m * self.l)) / denominator
+
+        # Enhanced divergence metric using both current and predicted states
+        divergence_metric = (theta * dtheta + theta_pred * dtheta_pred) / (self.omega_n * L_COM)
+        predictive_gain = 0.18 * np.tanh(2.5 * abs(theta))
+        predictive_correction = -predictive_gain * divergence_metric
+        force = force + predictive_correction
+>>>>>>> REPLACE
+
+</DIFF>

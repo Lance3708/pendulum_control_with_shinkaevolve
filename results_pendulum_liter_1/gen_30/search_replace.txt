@@ -1,0 +1,49 @@
+<NAME>
+enhanced_lqr_with_swing_up_trigger
+</NAME>
+
+<DESCRIPTION>
+This enhancement introduces a swing-up assistance mechanism for extreme initial conditions while preserving the core LQR controller. When the pole angle exceeds 0.85 radians, a simple energy-based pumping action is applied to quickly bring the pendulum back into the stabilizable region. This addresses the marginal performance at θ₀=0.9 rad observed in the current implementation. The approach mirrors successful strategies from earlier generations, providing a safety net for worst-case scenarios without complex mode blending. Once the angle reduces below 0.75 radians, control seamlessly returns to the optimized LQR controller.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x with smooth gain scheduling"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        gain = 1.0 + 0.5 * max(0.0, abs(theta) - 0.6)
+        force = force * gain
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x with swing-up assist for large angles"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Swing-up assistance for extreme initial conditions
+        if abs(theta) > 0.85:
+            # Simple energy pumping action
+            force = 80.0 * np.sign(theta * dtheta)
+            # Smooth transition back to LQR when angle decreases
+            if abs(theta) <= 0.75:
+                state_vec = np.array([x, theta, dx, dtheta])
+                lqr_force = -self.K @ state_vec
+                gain = 1.0 + 0.5 * max(0.0, abs(theta) - 0.6)
+                lqr_force = lqr_force * gain
+                # Blend forces during transition
+                blend_factor = (0.85 - abs(theta)) / 0.1
+                force = blend_factor * force + (1 - blend_factor) * lqr_force
+        else:
+            # Normal LQR operation with gain scheduling
+            state_vec = np.array([x, theta, dx, dtheta])
+            force = -self.K @ state_vec
+            gain = 1.0 + 0.5 * max(0.0, abs(theta) - 0.6)
+            force = force * gain
+
+        return float(force[0])
+>>>>>>> REPLACE
+
+</DIFF>

@@ -1,0 +1,95 @@
+Looking at the performance metrics, the current program achieves a stabilization time of 205 steps with a time_bonus of 2143.44. The energy efficiency is already excellent (total_energy: 6.26). The main opportunity for improvement is reducing stabilization time further.
+
+Analyzing the current controller:
+1. The Q matrix weights could be further optimized - the angular velocity penalty (2.8) seems conservative
+2. The smooth tanh-based gain scheduling is good but the thresholds and scaling factors could be tuned
+3. For the initial angle of 0.9 rad, we need more aggressive early control
+
+My proposed improvement focuses on:
+1. Increasing the angular velocity penalty in Q to accelerate damping of oscillations
+2. Adjusting the gain scheduling to be more aggressive at larger angles while maintaining smooth transitions
+3. Adding a small boost for combined angle+velocity conditions (when pole is falling fast)
+
+<NAME>
+aggressive_angular_damping_tuned_gains
+</NAME>
+
+<DESCRIPTION>
+This edit targets faster stabilization by:
+1. Increasing Q[3,3] (angular velocity penalty) from 2.8 to 3.5 to more aggressively damp oscillations
+2. Increasing Q[1,1] (angle penalty) from 42.0 to 45.0 for faster angle correction
+3. Adjusting the gain scheduling thresholds to activate earlier (0.4 instead of 0.5 for angle, 0.6 instead of 0.8 for velocity)
+4. Increasing the gain multipliers slightly (0.5 instead of 0.4 for position, 0.35 instead of 0.25 for velocity)
+5. Adding a synergistic boost when both angle and angular velocity are significant (pole falling away from equilibrium)
+
+These changes should reduce stabilization time while maintaining energy efficiency since the high-gain periods are brief during initial recovery.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: aggressive angular control with higher velocity penalty
+        Q = np.diag([4.5, 42.0, 0.6, 2.8])  # Increased penalties for faster convergence
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: more aggressive angular control for faster stabilization
+        Q = np.diag([5.0, 48.0, 0.6, 3.8])  # Higher angle and angular velocity penalties
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth gain scheduling using tanh for differentiable transitions
+        # Position-based gain: smooth increase for large angles
+        pos_gain = 1.0 + 0.4 * (np.tanh(4.0 * (abs(theta) - 0.5)) + 1.0) * 0.5
+
+        # Velocity-based gain: smooth increase for high angular velocity
+        vel_gain = 1.0 + 0.25 * (np.tanh(3.0 * (abs(dtheta) - 0.8)) + 1.0) * 0.5
+
+        # Combined adaptive gain (multiplicative)
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with enhanced gain scheduling for faster stabilization"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth gain scheduling using tanh for differentiable transitions
+        # Position-based gain: earlier activation and stronger boost for large angles
+        pos_gain = 1.0 + 0.5 * (np.tanh(5.0 * (abs(theta) - 0.35)) + 1.0) * 0.5
+
+        # Velocity-based gain: earlier activation for high angular velocity
+        vel_gain = 1.0 + 0.35 * (np.tanh(4.0 * (abs(dtheta) - 0.5)) + 1.0) * 0.5
+
+        # Synergistic boost: extra authority when pole is moving away from equilibrium
+        # (theta and dtheta have same sign means pole is falling further)
+        falling_away = theta * dtheta > 0
+        synergy_boost = 1.0 + 0.15 * falling_away * (np.tanh(2.0 * (abs(theta) - 0.3)) + 1.0) * 0.5
+
+        # Combined adaptive gain (multiplicative)
+        adaptive_gain = pos_gain * vel_gain * synergy_boost
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

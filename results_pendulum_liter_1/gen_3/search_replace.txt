@@ -1,0 +1,94 @@
+<NAME>
+correct_linearization_tune_weights
+</NAME>
+
+<DESCRIPTION>
+Fix the fundamentally incorrect hardcoded linearized A and B matrices, which used wrong formulas not matching the physics or the nonlinear simulate_pendulum_step dynamics. Derive the exact linearized state-space model analytically at the upright equilibrium (theta=0), including the high friction effects on velocities (viscous damping terms in A[2:4,2:4]). This provides precise A (4x4) and B (4x1) matrices capturing coupling, instability, and damping.
+
+Simultaneously, upgrade Q/R weights to aggressive values optimized for this extreme setup: high Q_theta=100 and Q_dtheta=20 for ultra-precise pole control and oscillation damping (boosts base_score precision); moderate Q_x=10, Q_dx=1 for cart centering without excess; low R=0.1 for fast aggressive actions (boosts time_bonus via quicker stabilization) while friction helps keep energy low.
+
+This targeted fix addresses the root cause of poor performance (wrong model → suboptimal K → slow/loose control) and tunes for high scores. Expected: base_score >800, time_bonus >1500, total >5500.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def __init__(self):
+        # 系统参数
+        m = M_POLE  # 摆杆质量
+        M = M_CART  # 小车质量
+        l = L_COM   # 质心距离
+        g = G       # 重力加速度
+
+        # 线性化状态空间模型
+        A = np.array([
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, -m*g/M, 0, 0],
+            [0, (m+M)*g/(M*l), 0, 0]
+        ])
+
+        B = np.array([
+            [0],
+            [0],
+            [1/M],
+            [-1/(M*l)]
+        ])
+
+        # LQR权重矩阵（更保守的次优设置，留出充分进化空间）
+        # Q: 显著降低权重，高度容忍误差 - 导致基础分数低
+        # R: 大幅增加权重，极度限制出力 - 导致响应慢，能耗高
+        Q = np.diag([2.0, 8.0, 0.05, 0.4])    # [x, theta, dx, dtheta] (更保守)
+        R = np.array([[3.0]])                  # 控制力惩罚极大 (非常不愿意用大力)
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+    def __init__(self):
+        # 系统参数
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        M_total = M + m
+        fc = FRICTION_CART
+        fj = FRICTION_JOINT
+
+        mu = m / M_total
+        denom_l = 4.0 / 3.0 - mu
+        denom = l * denom_l
+
+        # Exact linearized A and B including friction (derived from nonlinear dynamics)
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # Position coupling (undamped instability)
+        dtheta_dtheta = g / denom
+        dx_dtheta = -(m * l / M_total) * dtheta_dtheta
+        A[2, 1] = dx_dtheta
+        A[3, 1] = dtheta_dtheta
+
+        # Velocity damping from friction
+        dtheta_ddx = fc / (M_total * denom)
+        dtheta_ddtheta = -fj / (m * l * denom)
+        A[3, 2] = dtheta_ddx
+        A[3, 3] = dtheta_ddtheta
+
+        ddx_ddx = -fc / M_total - (m * l / M_total) * dtheta_ddx
+        ddx_ddtheta = fj / (M_total * denom)
+        A[2, 2] = ddx_ddx
+        A[2, 3] = ddx_ddtheta
+
+        # Input matrix B
+        dtheta_dF = -1.0 / (M_total * denom)
+        dx_dF = 1.0 / M_total - (m * l / M_total) * dtheta_dF
+        B = np.array([[0.0], [0.0], [dx_dF], [dtheta_dF]])
+
+        # Aggressive LQR weights for precision, speed, efficiency
+        Q = np.diag([10.0, 100.0, 1.0, 20.0])   # High theta/dtheta for tight control
+        R = np.array([[0.1]])                    # Low R for fast response
+
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+>>>>>>> REPLACE
+</DIFF>

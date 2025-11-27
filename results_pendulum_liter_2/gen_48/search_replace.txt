@@ -1,0 +1,57 @@
+<NAME>
+predictive_momentum_compensation
+</NAME>
+
+<DESCRIPTION>
+The current controller uses a sophisticated LQR-based approach with multiple enhancements, but it's hitting a performance plateau around 4200-4600 points. The key insight from analyzing the physics is that we need better anticipation of the pole's momentum, especially given its extreme length (2.5m) and high friction.
+
+The proposed change refines the predictive momentum compensation by:
+1. Using a more accurate estimation of theta acceleration that properly accounts for centrifugal forces
+2. Decomposing the temp_est term to isolate the centrifugal component (m*l*dtheta²*sin(theta)/Mtot)
+3. This provides a cleaner, more physically accurate prediction of future angular velocity
+
+This improvement directly addresses the challenge of controlling an extremely long, heavy pole with high friction - the current predictive correction is good but can be made more precise by properly separating the physical components of the dynamics. The change maintains the spirit of the original approach while enhancing its physical fidelity.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Predictive momentum compensation
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+        temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Enhanced predictive momentum compensation with proper centrifugal term isolation
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        f_cart = -self.b_c * dx
+        f_joint = -self.b_j * dtheta
+
+        # Isolate centrifugal term for clearer physical interpretation
+        centrifugal_term = (self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        base_temp = (force[0] + f_cart) / self.Mtot
+        temp_est = base_temp + centrifugal_term
+
+        denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+
+        # Predict angular velocity 0.04s ahead (2 timesteps)
+        dtheta_pred = dtheta + theta_acc_est * 0.04
+
+        # Normalized divergence metric using natural frequency scaling
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.15 * pred_divergence * np.tanh(2.5 * abs(theta))
+        force = force + predictive_correction
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,88 @@
+<NAME>robust_arctan2_angle_norm</NAME>
+<DESCRIPTION>Replace modulo-based angle normalization with `np.arctan2(np.sin(theta), np.cos(theta))` to ensure robust large-angle estimation during aggressive swing-up transients. The current modulo can misrepresent under rapid changes from 0.9 rad start; arctan2 guarantees consistent abs(theta) for gain scheduling, preserving multiplicative adaptive logic reliability.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+=======
+        # Robust angle normalization using arctan2
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>initialize_cart_integral</NAME>
+<DESCRIPTION>Initialize stateful integral accumulator for soft-switched cart position control in __init__. Enables elimination of residual steady-state x-error (0.03m) once paired with the action logic.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        self.integral_x = 0.0
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>discrete_time_lqr_zoh</NAME>
+<DESCRIPTION>Recompute LQR gains using discrete-time zero-order hold (ZOH) discretization via cont2discrete and dlqr. Aligns controller with simulator's Euler (discrete) dynamics, reducing phase lag in early response to accelerate stabilization below 192 steps and boost time_bonus without energy cost.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def solve_lqr(self, A, B, Q, R):
+        """Solve discrete-time LQR via ZOH discretization"""
+        from scipy.signal import cont2discrete, dlqr
+        Ad, Bd, _, _ = cont2discrete((A, B), DT, method='zoh')
+        Qd = Q * DT
+        Rd = R * DT
+        K, _, _ = dlqr(Ad, Bd, Qd, Rd)
+        return K
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_soft_integral_cart</NAME>
+<DESCRIPTION>Introduce soft-switched integral action on cart position gated by tanh(12*(0.1 - |theta|)), clamped >=0, with automatic reset on |theta|>0.15 and clipping for anti-windup. Eliminates stable_x_error:0.03 drift precisely when upright (no transient interference), securing higher base/success bonuses. Stateful but robust across sims via reset on large angles.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Soft-switched integral action on cart position gated by upright proximity
+        if abs(theta) > 0.15:
+            self.integral_x = 0.0
+        integral_sched = np.tanh(12.0 * (0.1 - abs(theta)))
+        integral_sched = np.maximum(0.0, integral_sched)
+        self.integral_x += x * DT * integral_sched
+        self.integral_x = np.clip(self.integral_x, -5.0, 5.0)
+        force += -3.0 * self.integral_x
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>refine_q_dtheta_weight</NAME>
+<DESCRIPTION>Slightly increase angular velocity weight in Q-matrix from 3.2 to 3.28 to damp post-swing-down oscillations. Historical data shows this reduces overshoot/settling time without energy increase, aiding convergence with new discrete LQR and integral, pushing beyond 4920.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: reverted to best-performing Q matrix
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])  # From best program (4920.14)
+=======
+        # Optimized LQR weights: reverted to best-performing Q matrix
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])
+>>>>>>> REPLACE
+</DIFF>

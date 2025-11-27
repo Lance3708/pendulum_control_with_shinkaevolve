@@ -1,0 +1,164 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Adaptive Cross-Coupled LQR Controller**  
+- **Implementation**: Uses an adaptive LQR with state-dependent cross-coupling in the Q-matrix, mid-swing angular damping, predictive momentum compensation, swing-up assist for large angles, and dual-gated integral control to stabilize a highly unstable inverted pendulum (long, heavy pole with high friction).  
+- **Performance**: Achieved a combined score of 3931.61 with full success bonus, low energy usage (avg 0.03 per step), and stable final errors near zero.  
+- **Feedback**: The controller effectively balances aggressive stabilization and energy efficiency, with innovations like predictive correction and mid-swing damping crucial for handling the challenging dynamics; dual-gated integral action prevents windup while aiding precision near equilibrium.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Phase-Based Reflex Controller for Inverted Pendulum**  
+- **Implementation**: Uses a rule-based, phase-dependent control strategy with three modes (Emergency, Recovery, Precision) that adjust gains based on pole angle, angular velocity, and cart position; includes integral action for position drift correction and anti-overshoot logic.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pendulum within limits (final theta error: 0.96 rad, final x error: 1889 m).  
+- **Feedback**: Despite intuitive physics-based design, the controller fails under extreme parameters (heavy/long pole, high friction); large initial angle (1.02 rad) and aggressive emergency response likely cause instability and cart runaway, indicating insufficient robustness and tuning for the given system dynamics.
+**Program Identifier:** Generation 1 - Patch Name phase_based_reflex_controller - Correct Program: False
+
+**Program Name: Phase-Based Inverted Pendulum Controller**  
+- **Implementation**: Uses a three-phase control strategy (emergency, guidance, precision) with angle/velocity thresholds and distinct gains; includes integral control in precision mode and predictive compensation in guidance mode.  
+- **Performance**: Scored 0.00 due to failure to stabilize the pendulum (final theta error: 2.71 rad), despite moderate energy efficiency (avg_energy_per_step: 0.46).  
+- **Feedback**: The controller fails to recover from the large initial angle (1.02 rad) under challenging dynamics (heavy, long pole); emergency mode overreacts or misdirects force, preventing stabilization within 1000 steps.
+**Program Identifier:** Generation 2 - Patch Name emergency_phase_controller - Correct Program: False
+
+**Program Name: Phase-Based Inverted Pendulum Controller**  
+- **Implementation**: Uses a rule-based controller with three distinct phases (Emergency Catch, Damping & Centering, Precision Hold) that switch based on an instability metric combining pole angle and angular velocity; each phase applies tuned PD control with nonlinear kickers in emergency mode.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pendulum within bounds, despite high energy usage (total_energy: 137.03) and full simulation duration (stabilization_time: 1000).  
+- **Feedback**: The controller failed to prevent large cart drift (final_x_error: 660.19) and significant pole angle error (final_theta_error: 0.31), indicating poor coordination between angle stabilization and position control—especially in later phases where position correction may destabilize the pole or is insufficiently coupled with dynamics.
+**Program Identifier:** Generation 3 - Patch Name three_phase_reflex_controller - Correct Program: False
+
+**Program Name: Three-Phase Inverted Pendulum Controller**  
+- **Implementation**: Uses a rule-based three-phase controller (Emergency, Guidance, Precision) with nonlinear gains and angle normalization; simulates a highly unstable pendulum (long, heavy pole; high friction).  
+- **Performance**: Scored 0.00 due to failure to stabilize the pole within limits (final theta error: 2.52 rad, position diverged to 4412 m).  
+- **Feedback**: Despite crisp phase logic and strong emergency response, the controller fails to recover from large initial angles under extreme system instability; guidance phase prediction may be inaccurate, and energy usage is high without achieving stability.
+**Program Identifier:** Generation 4 - Patch Name three_phase_controller - Correct Program: False
+
+**Program Name: Cascade Resonance Controller**  
+- **Implementation**: Uses a two-layer control strategy: a strategic layer computes a target pole angle from cart position/velocity errors, and a tactical PD layer with adaptive non-linear gains generates force to track that angle; includes emergency override for large angles.  
+- **Performance**: Achieved a combined score of 1124.53 with perfect stabilization ratio (1.00) over 1000 steps but failed to meet success criteria due to high final position error (8.92 m).  
+- **Feedback**: The controller stabilizes the pole effectively but prioritizes angle stability over cart positioning, leading to drift; the lack of integral action or position correction after stabilization likely caused the large steady-state x error and zero success bonus.
+**Program Identifier:** Generation 5 - Patch Name cascade_resonance_controller - Correct Program: False
+
+**Program Name: Adaptive Cross-Coupled LQR Controller**  
+- **Implementation**: Combines state-dependent LQR with cross-coupling in the Q-matrix, mid-swing angular damping, predictive momentum compensation, swing-up assist for large angles, and stability-gated integral control to handle a highly unstable, heavy, and long inverted pendulum.  
+- **Performance**: Achieved a high combined score of 3902.38 with strong energy efficiency (avg_energy_per_step: 0.03), fast stabilization (320 steps), and full success bonus.  
+- **Feedback**: The adaptive gains and predictive elements effectively managed the challenging dynamics, while the gated integral action prevented windup and improved steady-state accuracy without compromising stability.
+**Program Identifier:** Generation 6 - Patch Name adaptive_integral_with_stability_margin - Correct Program: True
+
+**Program Name: Phase-Based Adaptive Inverted Pendulum Controller**  
+- **Implementation**: Uses a phase-based control strategy with four distinct regimes (emergency rescue, recovery swing, stabilization, precision hold), incorporating predictive angle estimation, energy computation, and integral anti-windup. Control actions combine proportional-derivative terms, friction compensation, and position/angle integral correction.  
+- **Performance**: Achieved a combined score of 0.00 due to failure in stabilization (final theta error: 1.01 rad, final x error: 40.03 m), despite high base and time bonuses.  
+- **Feedback**: The controller fails to stabilize the pendulum within the allowed steps, indicating overly aggressive or mis-tuned responses in early phases that prevent convergence; large initial angle (1.02 rad) combined with heavy/long pole exacerbates instability, and integral windup or insufficient damping may degrade late-phase performance.
+**Program Identifier:** Generation 7 - Patch Name adaptive_phase_controller - Correct Program: False
+
+**Program Name: Reflex Cascade Controller for Inverted Pendulum**  
+- **Implementation**: Uses a hierarchical reflex-based control strategy with urgency-driven blending between survival (angle control), balance, and centering (position control) modes; includes friction compensation and integral anti-windup.  
+- **Performance**: Achieved a combined score of 538.83 with perfect stabilization ratio but large final position error (599.54) and no success bonus.  
+- **Feedback**: The controller stabilizes the pole effectively despite high inertia and friction, but fails to center the cart, indicating over-prioritization of angle stability at the expense of position control; energy efficiency is high, yet the lack of success bonus suggests failure to meet full task criteria (e.g., maintaining both balance and near-zero position).
+**Program Identifier:** Generation 8 - Patch Name reflex_cascade_control - Correct Program: False
+
+**Program Name: Phase-Based Inverted Pendulum Controller**  
+- **Implementation**: Uses a rule-based controller with four distinct phases (EMERGENCY, SWING-UP, CONVERGENCE, PRECISION) that apply different control laws based on angle, angular velocity, and position; includes phase transition smoothing and integral control in precision mode.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pendulum (final theta error: 2.40 rad, final x error: 74.00 m).  
+- **Feedback**: Despite high energy usage and full simulation duration, the controller failed to balance the pole—likely due to overly aggressive or misaligned phase logic for the challenging physics parameters (heavy, long pole with high friction). The large final errors indicate instability rather than convergence.
+**Program Identifier:** Generation 9 - Patch Name none - Correct Program: False
+
+**Program Name: Adaptive Cross-Coupled LQR with Swing-Up Assist**  
+- **Implementation**: Uses an adaptive LQR controller with state-dependent cross-coupling in the Q-matrix, mid-swing angular damping, predictive momentum compensation via second-order extrapolation, and dual-gated integral control to stabilize a challenging inverted pendulum (heavy, long pole; high friction; large initial angle).  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize within limits—final theta error was 3.01 rad and cart drifted over 3756 m despite full simulation runtime.  
+- **Feedback**: The controller failed to prevent divergence, suggesting overcompensation or instability in the adaptive gains and swing-up logic; predictive and damping terms may not sufficiently counteract the aggressive dynamics of the modified pendulum.
+**Program Identifier:** Generation 10 - Patch Name predictive_full_dynamics_second_order - Correct Program: False
+
+**Program Name: Reactive Multi-Mode Inverted Pendulum Controller**  
+- **Implementation**: Uses a hand-tuned, rule-based controller with four distinct modes (panic-save, swing-up, approach, precise-hold) that apply physics-inspired forces based on angle, velocity, energy deficit, and cart position, including integral action for steady-state correction.  
+- **Performance**: Achieved a base score of 68.93 but failed to stabilize the pendulum (final theta error: 1.88 rad), resulting in zero success bonus and a combined score of 0.00.  
+- **Feedback**: Despite reasonable energy and time bonuses, the controller could not balance the highly unstable system (long, heavy pole with high friction); the panic and swing-up logic may overreact or misjudge energy needs, preventing transition to stable hold mode.
+**Program Identifier:** Generation 11 - Patch Name simple_reactive_controller - Correct Program: False
+
+**Program Name: Rule-Based Phase Controller for Inverted Pendulum**  
+- **Implementation**: Uses a three-mode rule-based controller (emergency, guide, hold) with angle thresholds, predictive cart positioning, and energy-based force modulation to stabilize a challenging inverted pendulum system with high mass, length, and friction.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pole within the success threshold (final theta error = 0.78 rad), despite full simulation duration (1000 steps) and moderate energy usage.  
+- **Feedback**: The controller fails to recover from the large initial angle (1.02 rad) and cannot maintain balance within the required ±1.0 rad window; mode transitions and predictive logic are insufficient for the highly unstable system parameters.
+**Program Identifier:** Generation 12 - Patch Name phase_based_predictive - Correct Program: False
+
+**Program Name: Adaptive Cross-Coupled LQR Controller**  
+- **Implementation**: Combines state-dependent cross-coupling in the LQR cost matrix, mid-swing angular damping, predictive momentum compensation, swing-up assist for large angles, and dual-gated integral control to stabilize a highly challenging inverted pendulum (heavy, long pole with high friction).  
+- **Performance**: Achieved a high combined score of 3938.27 with full success bonus, low energy usage (avg 0.03/step), and stable final errors near zero.  
+- **Feedback**: The controller effectively handles extreme initial conditions and system instability through adaptive gains and predictive dynamics; evaluation confirms robust stabilization within 313 steps despite aggressive physical parameters.
+**Program Identifier:** Generation 13 - Patch Name predictive_acceleration_enhancement - Correct Program: True
+
+**Program Name: Phase-Aware Rule-Based Inverted Pendulum Controller**  
+- **Implementation**: Uses a rule-based controller with four distinct operational phases (emergency, transition, fine positioning, precision hold), incorporating predictive state estimation, friction compensation, and integral action for error correction.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pendulum within the time limit, despite moderate energy efficiency (avg_energy_per_step: 0.87).  
+- **Feedback**: The controller failed to recover from the large initial angle (1.02 rad) under challenging dynamics (heavy, long pole; high friction), indicating insufficient swing-up capability in the emergency phase and poor coordination between cart movement and pole momentum.
+**Program Identifier:** Generation 14 - Patch Name none - Correct Program: False
+
+**Program Name: Phase-Based Inverted Pendulum Controller**  
+- **Implementation**: Uses four distinct control phases (emergency, convergence, stabilization, precision) with hand-tuned rules and no optimal control or matrix operations; includes integral terms only in later phases and aggressive swing-up logic for large angles.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pendulum (final theta error: 2.17 rad, final x error: 618.65 m), despite high energy usage (total_energy: 231.35).  
+- **Feedback**: The controller fails to recover from the large initial angle (1.02 rad) given the challenging system parameters (heavy, long pole; high friction); phase transitions may be too abrupt, and emergency response lacks sufficient energy injection or coordination to initiate effective swing-up.
+**Program Identifier:** Generation 15 - Patch Name phase_based_control - Correct Program: False
+
+**Program Name: Adaptive Cross-Coupled LQR Controller**  
+- **Implementation**: Uses an adaptive LQR with state-dependent cross-coupling in the Q-matrix, mid-swing angular damping, predictive momentum compensation, swing-up assist for large angles, and dual-gated integral control to handle a highly unstable inverted pendulum (long, heavy pole with high friction).  
+- **Performance**: Achieved a combined score of 3970.15 with strong energy efficiency (avg_energy_per_step: 0.02), fast stabilization (316 steps), and full success bonus.  
+- **Feedback**: The controller effectively balances aggressive correction during large deviations with fine stabilization near upright, while predictive and damping terms prevent overshoot; integral action is wisely gated to avoid windup during transients.
+**Program Identifier:** Generation 16 - Patch Name physics_enhanced_prediction_and_damping - Correct Program: True
+
+**Program Name: Phase-Switching Reflex Controller**  
+- **Implementation**: Uses three distinct control phases (Emergency, Swing-Zone, Precision) based on pole angle and dynamics, with hand-tuned force rules and integral position correction in precision mode.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pendulum within limits (final theta error: 2.20 rad, x error: 25.65 m).  
+- **Feedback**: Despite high energy usage and full simulation duration, the controller failed to balance the pole—likely due to aggressive emergency responses and insufficient coordination between phases under extreme system parameters (heavy/long pole, high friction).
+**Program Identifier:** Generation 17 - Patch Name phase_switcher - Correct Program: False
+
+**Program Name: Three-Phase Predictive Inverted Pendulum Controller**  
+- **Implementation**: Uses a state-machine-based controller with three distinct phases—Emergency Catch, Corrective Swing, and Precision Hold—each applying tailored PD or PID-like control laws with predictive state estimation and integral anti-windup.  
+- **Performance**: Achieved a high combined score of 3883.02, with strong energy efficiency (avg 0.04 per step), fast stabilization (302 steps), and perfect final angle error (0.00).  
+- **Feedback**: The phase-switching logic effectively handles extreme initial conditions (58° tilt, heavy/long pole), while predictive terms and integral action in the hold phase ensure precise, low-energy stabilization—demonstrating robustness and adaptability.
+**Program Identifier:** Generation 18 - Patch Name three_phase_predictive_control - Correct Program: True
+
+**Program Name: Adaptive Cross-Coupled LQR with Predictive Damping**  
+- **Implementation**: Combines state-dependent LQR with cross-coupling in the Q-matrix, mid-swing angular damping, predictive momentum compensation, swing-up assist for large angles, and gated integral control to handle a highly unstable, heavy, and long inverted pendulum.  
+- **Performance**: Achieved a high combined score of 3828.28 with strong energy efficiency (avg_energy_per_step: 0.02), fast stabilization (338 steps), and full success bonus.  
+- **Feedback**: The adaptive gains, predictive correction, and hybrid integral gating effectively stabilized extreme initial conditions while minimizing control effort; mid-swing damping notably reduced overshoot during high-energy transitions.
+**Program Identifier:** Generation 19 - Patch Name hybrid_stability_gating - Correct Program: True
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+## Successful Algorithmic Patterns
+- **Adaptive cross-coupled LQR with state-dependent tuning remains the gold standard**, as demonstrated by both *Adaptive Cross-Coupled LQR Controller* (Gen 16, score: **3970.15**) and *Adaptive Cross-Coupled LQR with Predictive Damping* (Gen 19, score: **3828.28**). These controllers explicitly couple pole angle and angular velocity in the Q-matrix (`Q[1,3] = Q[3,1] = 0.8`) and dynamically boost this coupling via `tanh(3.0 * abs(theta))`, enabling precise coordination during high-energy transitions—critical for stabilizing the long (2.5 m), heavy (0.35 kg) pole under high friction.
+- **Mid-swing angular damping using Gaussian activation** (`exp(-4.0*(abs(theta)-0.5)**2)`) effectively suppresses momentum overshoot in the 0.25–0.85 rad range, preventing oscillatory divergence. This targeted damping, combined with **predictive momentum compensation using full dynamic coupling** (including cart acceleration effects on theta dynamics), allows early counteraction before instability manifests—key to achieving stabilization in just **316 steps** (Gen 16).
+- **Dual-gated integral control**—activated only when both `|theta| < 0.1` and `|dtheta| < 1.0` via multiplicative `tanh` gates—enables steady-state position correction (final x error: **0.01 m**, stable_x_error: **0.09**) without integrator windup, directly contributing to the full **800 success bonus** across multiple successful programs.
+- **Three-phase predictive controllers can rival adaptive LQR performance** when implemented with smooth transitions and physics-aware prediction, as shown by *Three-Phase Predictive Inverted Pendulum Controller* (Gen 18, score: **3883.02**), which achieved near-perfect final angle error (**0.00**) and fast stabilization (**302 steps**) through tailored PD/PID laws and anti-windup mechanisms.
+
+## Ineffective Approaches
+- **Rule-based phase controllers with hard thresholds consistently failed**: *Phase-Based Inverted Pendulum Controller* (Gen 15, score: **0.00**) and *Phase-Switching Reflex Controller* (Gen 17, score: **0.00**) diverged despite moderate-to-high energy usage because rigid mode switches overreacted to the large initial angle (1.02 rad), causing either insufficient swing-up energy or excessive cart movement that prevented transition to stable hold mode.
+- **Aggressive emergency responses without coordinated recovery logic led to catastrophic failure**: Both Gen 15 and Gen 17 exhibited high energy consumption (total_energy: **231.35** and unspecified but high, respectively) yet ended with extreme final errors (x error: **618.65 m** and **25.65 m**), indicating uncontrolled divergence rather than controlled swing-up attempts.
+- **Lack of predictive compensation and adaptive gain scheduling proved fatal under extreme dynamics**: The failed phase-based controllers relied solely on reactive thresholds without estimating future states or adjusting gains based on current deviation magnitude, making them unable to handle the challenging system parameters (heavy/long pole, high friction).
+
+## Implementation Insights
+- The current best program (*Adaptive Cross-Coupled LQR Controller*, Gen 16) embeds **lightweight physics-aware approximations directly into control logic**: it estimates angular acceleration using gravity, friction, and cart coupling terms to compute `theta_acc_est`, enabling predictive compensation without full-state observers—a key differentiator from rule-based controllers that rely solely on reactive thresholds.
+- **Smooth nonlinear gain scheduling via `tanh` and Gaussian functions** ensures seamless transitions between behaviors (e.g., swing-up assist, mid-swing damping, integral activation), avoiding discontinuities that excite instability—contrasting sharply with the abrupt phase switches in failed programs like Gen 15 and Gen 17.
+- **Robust angle normalization** (`((theta + π) % (2π)) - π`) is consistently applied in the successful controller, ensuring correct state interpretation across rotations, while its absence or inconsistent use in phase-based controllers likely contributed to misclassification of angles near ±π and subsequent control errors.
+- **Energy efficiency is achieved through minimal, gated actuation**: the successful controller uses adaptive gain suppression outside critical regions and deactivates integral action via dual gating, resulting in ultra-low **avg_energy_per_step (0.02)** versus >0.87 in failed attempts like Gen 15.
+
+## Performance Analysis
+- The **current best program (3970.15)** vastly outperforms all others: it is one of only three programs to achieve full success bonus (**800**), near-zero final errors (**θ=0.00, x=0.01**), and high energy efficiency (**total_energy=21.31**), while stabilizing rapidly (**316 steps**). All other evaluated programs either failed completely (score **0.00**) or scored significantly lower.
+- **Stabilization alone is insufficient**: previous cascade controllers achieved perfect stabilization ratios but scored poorly due to large position errors; the current best program proves that **simultaneous balance and centering**—enabled by cross-coupled LQR and gated integral control—is essential for task success.
+- **Energy usage inversely correlates with model awareness**: the adaptive LQR used **21.31 total energy**, while rule-based controllers consumed orders of magnitude more (e.g., Gen 15 used avg **0.23/step** over 1000 steps = ~230 total) yet still failed, confirming that intelligent, predictive actuation is far more efficient than brute-force correction.
+- **Failure modes are catastrophic in challenging dynamics**: under high inertia and friction, non-adaptive controllers diverged to extreme positions (**x > 618 m** in Gen 15), whereas the best program’s predictive and adaptive mechanisms maintained bounded, convergent behavior throughout, demonstrating robustness to extreme initial conditions.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+1. **Enhance predictive compensation with explicit cart-acceleration coupling in angular dynamics**: Replace the current `temp_est` calculation in `theta_acc_est` by incorporating the pole-induced reaction force term `(m * l * dtheta**2 * sin(theta)) / Mtot` directly into the cart acceleration estimate used for prediction. This refines the already-successful predictive momentum compensation to better capture high-energy swing-up dynamics, improving divergence anticipation without adding computational overhead.
+
+2. **Implement direction-aware mid-swing damping using phase-plane sign logic**: Modify the existing `midswing_damp` term to be multiplied by `np.tanh(3.0 * theta * dtheta)`, ensuring damping is applied only when the pole is moving away from upright (`theta * dtheta > 0`). This builds on the proven Gaussian activation but adds motion-direction intelligence to preserve energy during recovery phases while maintaining overshoot suppression—reducing unnecessary actuation and further lowering energy use.
+
+3. **Introduce adaptive integral gain scheduling based on joint proximity to equilibrium**: Replace the fixed `K_i = 0.85` with a state-dependent gain like `K_i = 0.85 * np.exp(-2.0 * (abs(theta) + 0.5*abs(dtheta)))`. This extends the dual-gating mechanism already present to dynamically reduce integral aggressiveness during transients, minimizing the observed `stable_x_error: 0.09` even further without risking windup or destabilization.
+
+4. **Add lightweight online friction adaptation via recursive residual correction**: Every 20 steps, compute the residual between predicted and actual `dtheta` using the current dynamics model, then update `b_j += 0.01 * residual * dtheta` and recompute `denom0` and relevant LQR terms. This leverages the physics-aware design principle of the best program to compensate for high joint friction—a known challenge—which distorts effective torque and degrades prediction accuracy over time.
+
+5. **Modulate adaptive gain using a Lyapunov-inspired energy-risk metric**: Compute real-time mechanical energy `E_risk = 0.5*M_CART*dx**2 + M_POLE*G*L_COM*(1 - np.cos(theta))` and scale `adaptive_gain *= min(1.0, 1.5 / (1.0 + E_risk))` when `E_risk > 1.2`. This prevents over-aggressive correction in high-energy states (reducing divergence risk near the separatrix) while preserving responsiveness close to equilibrium—directly aligning with the insight that low-energy, intelligent actuation correlates strongly with success.

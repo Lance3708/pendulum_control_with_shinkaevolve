@@ -1,0 +1,152 @@
+<NAME>
+discrete_lqr_with_refined_gains
+</NAME>
+
+<DESCRIPTION>
+Based on recommendation #3, I'll implement discrete-time LQR using zero-order hold (ZOH) discretization with DT=0.02s to better align the controller prediction with the simulator's Euler integration. The current continuous-time LQR assumes infinitesimal time steps, but the simulator uses explicit Euler with fixed DT=0.02s, causing model mismatch during transients.
+
+Additionally, I'll fine-tune the Q-matrix by slightly increasing Q[3] to 3.25 (as suggested in recommendation #1) and adjust Q[1] to 44.0 to match the best-performing configuration. This combination should reduce early oscillations while maintaining fast convergence.
+
+The discrete-time approach computes A_d and B_d via matrix exponential approximation and solves the discrete algebraic Riccati equation (DARE) instead of the continuous ARE, which should better match the actual dynamics and improve early-force accuracy.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def __init__(self):
+        # 系统参数
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Friction-aware linearized A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3)
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: enhanced angular velocity damping for improved stability
+        # Q[1]=38.0 for angle correction, Q[3]=3.4 for stronger angular velocity damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.4])
+        R = np.array([[1.0]])
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+
+    def solve_lqr(self, A, B, Q, R):
+        """求解连续时间LQR问题"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def __init__(self):
+        # 系统参数
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Friction-aware linearized A matrix (continuous-time)
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3)
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix (continuous-time)
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: matching best performer with fine-tuned damping
+        # Q[1]=44.0 for aggressive angle correction, Q[3]=3.25 for optimal damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.25])
+        R = np.array([[1.0]])
+
+        # Discretize system using ZOH for better match with Euler integration
+        Ad, Bd = self.discretize_zoh(A, B, DT)
+
+        # Solve discrete-time LQR
+        self.K = self.solve_dlqr(Ad, Bd, Q, R)
+
+    def discretize_zoh(self, A, B, dt):
+        """Discretize continuous system using zero-order hold (ZOH)"""
+        from scipy.linalg import expm
+        n = A.shape[0]
+        m = B.shape[1]
+
+        # Build augmented matrix for exact discretization
+        # [A  B]
+        # [0  0]
+        aug = np.zeros((n + m, n + m))
+        aug[:n, :n] = A * dt
+        aug[:n, n:] = B * dt
+
+        # Matrix exponential
+        exp_aug = expm(aug)
+
+        Ad = exp_aug[:n, :n]
+        Bd = exp_aug[:n, n:]
+
+        return Ad, Bd
+
+    def solve_dlqr(self, A, B, Q, R):
+        """Solve discrete-time LQR using discrete algebraic Riccati equation"""
+        from scipy.linalg import solve_discrete_are
+        P = solve_discrete_are(A, B, Q, R)
+        K = np.linalg.inv(R + B.T @ P @ B) @ (B.T @ P @ A)
+        return K
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+=======
+        # Smooth tanh-based gain scheduling for differentiable transitions
+        # Refined thresholds for better early response
+        pos_gain = 1.0 + 0.45 * (np.tanh(4.5 * (abs(theta) - 0.45)) + 1.0) * 0.5
+        vel_gain = 1.0 + 0.3 * (np.tanh(3.5 * (abs(dtheta) - 0.7)) + 1.0) * 0.5
+
+        # Weighted blend based on dominant error mode for smoother control
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.3 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+>>>>>>> REPLACE
+</DIFF>

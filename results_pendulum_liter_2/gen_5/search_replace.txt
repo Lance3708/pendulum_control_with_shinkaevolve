@@ -1,0 +1,216 @@
+<NAME>
+cascade_resonance_controller
+</NAME>
+
+<DESCRIPTION>
+Replaces the complex LQR implementation with a physics-based "Cascade Resonance" controller.
+This approach uses two distinct loops:
+1. A strategic outer loop that manages cart position by requesting specific rod lean angles (using the non-minimum phase property).
+2. A tactical inner loop that enforces rod angle using non-linear stiffness (gentle when stable, aggressive when falling).
+This eliminates all matrix math and meets the "Paradigm Shift" constraints while directly addressing the heavy/long rod dynamics.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+class Controller:
+    """
+    Adaptive Cross-Coupled LQR with Mid-Swing Damping and Predictive Compensation
+
+    Key innovations:
+    1. State-dependent cross-coupling in Q-matrix for better coordination
+    2. Mid-swing angular damping to suppress momentum overshoot
+    3. Predictive momentum compensation for earlier counteraction
+    4. Refined integral control with dual gating
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.Mtot = self.M + self.m
+        self.denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
+        self.b_c = FRICTION_CART
+        self.b_j = FRICTION_JOINT
+
+        # Build base A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+        A[3, 1] = self.g / self.denom0
+        A[3, 2] = self.b_c / (self.Mtot * self.denom0)
+        A[3, 3] = -self.b_j / (self.m * self.l * self.denom0)
+        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
+        A[2, 2] = -self.b_c / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
+        A[2, 3] = self.b_j / (self.Mtot * self.denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * self.denom0)
+        B[3, 0] = -1.0 / (self.Mtot * self.denom0)
+
+        # Base Q with proven optimal diagonal weights
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        # Add cross-coupling terms for theta-dtheta coordination
+        Q[1, 3] = 0.8
+        Q[3, 1] = 0.8
+        R = np.array([[1.0]])
+
+        self.A = A
+        self.B = B
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+=======
+class Controller:
+    """
+    Cascade Resonance Controller
+
+    A physics-first approach that separates concerns into a hierarchy:
+    1. Strategic Layer: Where should the cart be? -> Calculates target lean angle
+    2. Tactical Layer: Keep the rod at that angle. -> Calculates force
+
+    This avoids complex matrices in favor of intuitive physical relationships.
+    It uses non-linear gains to be gentle when stable (saving energy)
+    and aggressive when falling (saving the system).
+    """
+
+    def __init__(self):
+        # No complex pre-computation needed
+        pass
+
+    def get_action(self, state):
+        x, theta, dx, dtheta = state
+
+        # --- 1. STRATEGIC PHASE: POSITION CONTROL ---
+        # We manipulate the cart position by requesting a specific rod angle.
+        # To move Left (decrease x), we must lean the rod Left (negative theta).
+
+        # Gains tuned for the 2.5m heavy rod (slow dynamics)
+        K_pos_p = 0.10  # Desired angle (rad) per meter of position error
+        K_pos_d = 0.15  # Desired angle (rad) per m/s of velocity
+
+        # Calculate the "virtual" setpoint for the rod angle
+        target_theta = -(K_pos_p * x + K_pos_d * dx)
+
+        # Safety Saturation:
+        # Never request a lean angle > 0.20 rad (approx 11 deg) just for positioning.
+        # Stability is the priority.
+        target_theta = np.clip(target_theta, -0.20, 0.20)
+
+        # --- 2. EMERGENCY OVERRIDE ---
+        # If the rod is dangerously tilted, abandon position control.
+        # Focus 100% on upright stability.
+        if abs(theta) > 0.35:
+            target_theta = 0.0
+
+        # --- 3. TACTICAL PHASE: ATTITUDE CONTROL ---
+        # Drive the rod angle to the target_theta using a specialized PD loop.
+
+        error = theta - target_theta
+
+        # Base Gains:
+        # Kp needs to be high to overcome the heavy rod's gravity torque.
+        # Gravity torque ~ mgL*sin(theta). For 0.35kg, 2.5m, it's significant.
+        Kp = 85.0
+        Kd = 20.0
+
+        # Adaptive Stiffness (Non-linear Gain):
+        # When error is large, stiffen the spring to "catch" the rod.
+        # When error is small, relax to save energy and reduce jitter.
+        urgency = 1.0 + 4.0 * abs(error)**1.5
+
+        # Dynamic Damping:
+        # Scale D gain with sqrt of stiffness to maintain constant damping ratio.
+        # This prevents oscillations when stiffness increases.
+        damping_boost = np.sqrt(urgency)
+
+        # Calculate Control Force
+        force = (Kp * urgency) * error + (Kd * damping_boost) * dtheta
+
+        return float(force)
+>>>>>>> REPLACE
+</DIFF>

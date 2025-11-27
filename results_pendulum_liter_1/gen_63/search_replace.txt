@@ -1,0 +1,254 @@
+<NAME>
+add_integral_action_with_tanh_activation
+</NAME>
+
+<DESCRIPTION>
+I'm adding an integral action to eliminate steady-state error in cart position, which is currently leaving a stable_x_error of 0.03. The integral state will be softly activated only when the pendulum is close to upright (|θ| < 0.1 rad) to avoid windup during swing-up. I'll use tanh-based activation to ensure smooth transitions and prevent performance degradation during transient phases. This should help achieve the final precision needed for maximum success bonus while maintaining stability throughout the entire control process.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Suboptimal LQR Controller for Single Inverted Pendulum Stabilization.
+    次优LQR控制器 - 能稳住，但参数故意调得"懒惰"。
+
+    特点：
+    1. 物理环境更难（杆更长更重，摩擦更大）。
+    2. Q矩阵参数较小：对误差容忍度高 -> 精度分低。
+    3. R矩阵参数较大：不愿用大力 -> 响应慢，时间分低。
+
+    目标：初始分数 ~3000 分，进化后可达 9000+ 分。
+    """
+
+    def __init__(self):
+        # 系统参数
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Friction-aware linearized A matrix (continuous-time)
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3)
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix (continuous-time)
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: matching best performer with fine-tuned damping
+        # Q[1]=44.0 for aggressive angle correction, Q[3]=3.25 for optimal damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.25])
+        R = np.array([[1.0]])
+
+        # Discretize system using ZOH for better match with Euler integration
+        Ad, Bd = self.discretize_zoh(A, B, DT)
+
+        # Solve discrete-time LQR
+        self.K = self.solve_dlqr(Ad, Bd, Q, R)
+
+    def discretize_zoh(self, A, B, dt):
+        """Discretize continuous system using zero-order hold (ZOH)"""
+        from scipy.linalg import expm
+        n = A.shape[0]
+        m = B.shape[1]
+
+        # Build augmented matrix for exact discretization
+        # [A  B]
+        # [0  0]
+        aug = np.zeros((n + m, n + m))
+        aug[:n, :n] = A * dt
+        aug[:n, n:] = B * dt
+
+        # Matrix exponential
+        exp_aug = expm(aug)
+
+        Ad = exp_aug[:n, :n]
+        Bd = exp_aug[:n, n:]
+
+        return Ad, Bd
+
+    def solve_dlqr(self, A, B, Q, R):
+        """Solve discrete-time LQR using discrete algebraic Riccati equation"""
+        from scipy.linalg import solve_discrete_are
+        P = solve_discrete_are(A, B, Q, R)
+        K = np.linalg.inv(R + B.T @ P @ B) @ (B.T @ P @ A)
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth tanh-based gain scheduling for differentiable transitions
+        # Refined thresholds for better early response
+        pos_gain = 1.0 + 0.45 * (np.tanh(4.5 * (abs(theta) - 0.45)) + 1.0) * 0.5
+        vel_gain = 1.0 + 0.3 * (np.tanh(3.5 * (abs(dtheta) - 0.7)) + 1.0) * 0.5
+
+        # Weighted blend based on dominant error mode for smoother control
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.3 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    return float(controller.get_action(state))
+# EVOLVE-BLOCK-END
+=======
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Suboptimal LQR Controller for Single Inverted Pendulum Stabilization.
+    次优LQR控制器 - 能稳住，但参数故意调得"懒惰"。
+
+    特点：
+    1. 物理环境更难（杆更长更重，摩擦更大）。
+    2. Q矩阵参数较小：对误差容忍度高 -> 精度分低。
+    3. R矩阵参数较大：不愿用大力 -> 响应慢，时间分低。
+
+    目标：初始分数 ~3000 分，进化后可达 9000+ 分。
+    """
+
+    def __init__(self):
+        # 系统参数
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Friction-aware linearized A matrix (continuous-time)
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3)
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix (continuous-time)
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: matching best performer with fine-tuned damping
+        # Q[1]=44.0 for aggressive angle correction, Q[3]=3.25 for optimal damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.25])
+        R = np.array([[1.0]])
+
+        # Discretize system using ZOH for better match with Euler integration
+        Ad, Bd = self.discretize_zoh(A, B, DT)
+
+        # Solve discrete-time LQR
+        self.K = self.solve_dlqr(Ad, Bd, Q, R)
+
+        # Initialize integral state
+        self.integral_x = 0.0
+
+    def discretize_zoh(self, A, B, dt):
+        """Discretize continuous system using zero-order hold (ZOH)"""
+        from scipy.linalg import expm
+        n = A.shape[0]
+        m = B.shape[1]
+
+        # Build augmented matrix for exact discretization
+        # [A  B]
+        # [0  0]
+        aug = np.zeros((n + m, n + m))
+        aug[:n, :n] = A * dt
+        aug[:n, n:] = B * dt
+
+        # Matrix exponential
+        exp_aug = expm(aug)
+
+        Ad = exp_aug[:n, :n]
+        Bd = exp_aug[:n, n:]
+
+        return Ad, Bd
+
+    def solve_dlqr(self, A, B, Q, R):
+        """Solve discrete-time LQR using discrete algebraic Riccati equation"""
+        from scipy.linalg import solve_discrete_are
+        P = solve_discrete_are(A, B, Q, R)
+        K = np.linalg.inv(R + B.T @ P @ B) @ (B.T @ P @ A)
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR control with integral action and smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Update integral state
+        self.integral_x += x * DT
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Soft activation of integral action using tanh
+        # Only activate when pendulum is close to upright to avoid windup
+        integral_activation = 0.5 * (np.tanh(20.0 * (0.1 - abs(theta))) + 1.0)
+        integral_gain = 0.15  # Tuned integral gain
+
+        # Calculate integral force component
+        integral_force = -integral_gain * self.integral_x * integral_activation
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth tanh-based gain scheduling for differentiable transitions
+        # Refined thresholds for better early response
+        pos_gain = 1.0 + 0.45 * (np.tanh(4.5 * (abs(theta) - 0.45)) + 1.0) * 0.5
+        vel_gain = 1.0 + 0.3 * (np.tanh(3.5 * (abs(dtheta) - 0.7)) + 1.0) * 0.5
+
+        # Weighted blend based on dominant error mode for smoother control
+        theta_weight = abs(theta) / (abs(theta) + abs(dtheta) * 0.3 + 0.01)
+        adaptive_gain = theta_weight * pos_gain + (1.0 - theta_weight) * vel_gain
+
+        force = base_force * adaptive_gain + integral_force
+
+        return float(force[0])
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    return float(controller.get_action(state))
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+
+</DIFF>

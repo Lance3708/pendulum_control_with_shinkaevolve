@@ -1,0 +1,151 @@
+<NAME>
+phase_adaptive_predictive_control
+</NAME>
+
+<DESCRIPTION>
+This edit refactors the controller to implement a more decisive, phase-based strategy, inspired by the highest-scoring prior solutions. The goal is to significantly reduce the stabilization time while improving final precision.
+
+The core idea is to treat the control problem as three distinct phases: Emergency Recovery, Mid-Swing Catch, and Precision Hold.
+
+1.  **Phase-Based Logic:** The control logic is restructured into a clear `if/elif/else` block based on the pole's angle (`theta`). This replaces the previous mixed-logic approach with distinct strategies for each phase, preventing control actions from interfering with each other inappropriately (e.g., predictive compensation is now confined to the mid-swing phase where it's most effective).
+
+2.  **Aggressive Recovery:**
+    - The swing-up assist gain in the emergency phase (`|theta| > 0.8`) is increased from `8.0` to `9.0` for faster initial correction.
+    - Phase-specific cart damping (`-0.3 * dx * ...`) is added here to prevent the cart from gaining excessive velocity during aggressive maneuvers.
+
+3.  **Enhanced Predictive "Catch":**
+    - The prediction horizon for angular velocity (`dtheta_pred`) is doubled to two timesteps (`0.04s`), allowing the controller to position the cart more proactively.
+    - The predictive correction gain is slightly increased to `-0.15` for a stronger effect.
+    - Mid-swing damping (`K_d_midswing`) is increased to `3.0` to more effectively dissipate energy and prevent overshoot.
+
+4.  **Faster Precision Hold & Bug Fix:**
+    - A critical bug in the integral controller has been fixed: the integral force now correctly subtracts from the total force (`force - integral_force`) to oppose position error, rather than reinforcing it.
+    - Strong, explicit damping (`-0.4 * dx - 0.2 * dtheta`) is introduced in the precision hold phase (`|theta| <= 0.25`) to rapidly eliminate residual oscillations and achieve stability faster.
+
+5.  **Simplified Damping:** The complex angle-dependent cart damping has been replaced with phase-specific damping and a simple, universal light damping (`-0.1 * dx`) applied at the end. This provides consistent drift prevention without interfering with the primary control actions.
+
+Collectively, these changes create a more intelligent, responsive, and faster controller by applying the right tool at the right time.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        force = base_force * adaptive_gain
+
+        # Direction-aware mid-swing angular damping
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+        if abs(theta) > 0.25 and abs(theta) < 0.85 and theta * dtheta > 0:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Enhanced predictive momentum compensation with full physics model
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # More accurate physics: estimate the 'temp' term from simulation EoM
+        # This includes the non-linear centrifugal component for better prediction
+        estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * estimated_temp - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence, with slightly increased gain
+        # and a "returning" mask to reduce correction when pole is naturally coming back
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        # The returning mask is 1.0 when moving away from upright, 0.0 when returning
+        returning_mask = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))
+        predictive_correction = -0.14 * pred_divergence * np.tanh(3.0 * abs(theta)) * returning_mask
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # NEW: Adaptive cart damping to suppress non-essential movement
+        adaptive_dx_damping = -0.5 * dx * np.tanh(5.0 * abs(theta))
+        force = force + adaptive_dx_damping
+
+        # Adaptive integral control with state-dependent gain
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        K_i_adaptive = self.K_i * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.2, self.K_i)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        force = base_force * adaptive_gain
+
+        # --- Phase-based Control Logic ---
+
+        # Phase 1: Emergency Recovery (large angles)
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 9.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+            # Add cart damping during emergency swing-up
+            force = force - 0.3 * dx * np.tanh(3.0 * abs(theta))
+
+        # Phase 2: Mid-Swing Transition & Catch
+        elif abs(theta) > 0.25:
+            # Direction-aware mid-swing angular damping (only when moving away)
+            if theta * dtheta > 0:
+                mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+                K_d_midswing = 3.0
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+                force = force + midswing_damp
+
+            # Enhanced predictive momentum compensation
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+            estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+            theta_acc_est = (self.g * sin_theta - cos_theta * estimated_temp - self.b_j * dtheta / (self.m * self.l)) / \
+                            (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+            dtheta_pred = dtheta + theta_acc_est * 0.04 # Predict 2 timesteps ahead
+
+            pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+            returning_mask = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))
+            predictive_correction = -0.15 * pred_divergence * np.tanh(3.0 * abs(theta)) * returning_mask
+            force = force + predictive_correction
+
+        # Phase 3: Precision Hold (small angles)
+        else:
+            # Adaptive integral control for position centering
+            angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            K_i_adaptive = self.K_i * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.2, self.K_i)
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+            else:
+                self.integral_x *= 0.95
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # CRITICAL FIX: Integral force must oppose position error
+            force = force - integral_force
+
+            # Add explicit damping for faster settling
+            force = force - 0.4 * dx - 0.2 * dtheta
+
+        # Universal light cart damping for all phases
+        force = force - 0.1 * dx
+>>>>>>> REPLACE
+</DIFF>

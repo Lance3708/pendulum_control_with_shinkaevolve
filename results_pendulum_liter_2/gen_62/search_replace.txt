@@ -1,0 +1,112 @@
+<NAME>
+energy_risk_modulation
+</NAME>
+
+<DESCRIPTION>
+I'm implementing a real-time mechanical energy risk metric to modulate adaptive gain during swing-up phases. The current controller uses fixed gain scheduling, but for this extremely unstable system (heavy, long pole), we need to be more careful about over-aggressive actuation near the energy separatrix. By computing the total mechanical energy and scaling down gains when energy risk is high, we can prevent destabilizing oscillations while maintaining responsiveness near equilibrium. This should improve both energy efficiency and stabilization time.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Adaptive gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+=======
+        # Compute mechanical energy risk metric
+        # Total energy = kinetic (cart) + kinetic (pole) + potential (pole)
+        E_kinetic_cart = 0.5 * self.M * dx**2
+        E_kinetic_pole = 0.5 * self.m * (self.l * dtheta)**2
+        E_potential = self.m * self.g * self.l * (1 - np.cos(theta))
+        total_energy = E_kinetic_cart + E_kinetic_pole + E_potential
+
+        # Energy threshold for risk assessment (slightly above minimum energy for upright)
+        energy_threshold = 1.5 * self.m * self.g * self.l
+        E_risk = max(0.0, total_energy - energy_threshold)
+
+        # Adaptive gain scheduling with energy risk modulation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        base_adaptive_gain = pos_gain * vel_gain
+
+        # Modulate gain based on energy risk - reduce when near separatrix
+        energy_risk_factor = min(1.0, 1.5 / (1.0 + E_risk))
+        adaptive_gain = base_adaptive_gain * energy_risk_factor
+
+        force = base_force * adaptive_gain
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+phase_plane_damping
+</NAME>
+<DESCRIPTION>
+I'm enhancing the mid-swing damping with true phase-plane awareness. The current directional damping only checks if theta*dtheta > 0, but this misses important nuances. By using np.tanh(3.0 * theta * dtheta), we get a smooth continuous measure that distinguishes between moving away (positive) vs returning (negative), with magnitude indicating how aligned the motion is. This allows for more precise damping that only activates when needed and can even assist when the pole is naturally returning to vertical. This should reduce overshoot and improve settling time.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+            # Directional damping - only when moving away from upright
+            # This prevents adding energy when the pole is naturally returning
+            if theta * dtheta > 0:  # Moving away from vertical
+                mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+                K_d_midswing = 3.0
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+                force = force + midswing_damp
+=======
+            # Phase-plane-aware damping with smooth directionality
+            mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+            if abs(theta) > 0.25 and abs(theta) < 0.85:
+                K_d_midswing = 2.8
+                # Smooth direction factor: positive when moving away, negative when returning
+                direction_factor = np.tanh(3.0 * theta * dtheta)
+                # Only apply damping when moving away (positive direction factor)
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * max(0.0, direction_factor)
+                force = force + midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+exponential_integral_decay
+</NAME>
+<DESCRIPTION>
+I'm implementing exponential decay for integral gain scheduling based on proximity to equilibrium. The current integral control uses a fixed threshold and simple decay, but for precision positioning we need smoother adaptation. By making the integral gain decay exponentially as we approach equilibrium (using both angle and angular velocity), we get more aggressive correction when far from balance and gentler action when close. This should improve final position accuracy while preventing integral windup during transients.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+            # Enhanced integral control with state-dependent gain scheduling
+            # Exponential decay near equilibrium for smoother control
+            K_i_adaptive = 0.85 * np.exp(-2.0 * (abs(theta) + 0.5*abs(dtheta)))
+
+            # Accumulate integral only when very close to equilibrium
+            if abs(theta) < 0.1 and abs(dtheta) < 0.5:
+                self.integral_x += x * DT
+                self.integral_x = np.clip(self.integral_x, -1.0, 1.0)
+            else:
+                self.integral_x *= 0.97  # Faster decay when not in stable region
+
+            integral_force = K_i_adaptive * self.integral_x
+            force = force + integral_force
+=======
+            # Enhanced integral control with exponential gain decay
+            # Gain decreases exponentially as we approach equilibrium
+            K_i_adaptive = 0.85 * np.exp(-2.0 * (abs(theta) + 0.5*abs(dtheta)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.2, 0.85)
+
+            # Dual-gating for integral accumulation
+            angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Dynamic windup limits based on stability
+                integral_limit = 1.0 + 1.5 * (1.0 - integral_gate)
+                self.integral_x = np.clip(self.integral_x, -integral_limit, integral_limit)
+            else:
+                self.integral_x *= 0.95  # Moderate decay when outside stable region
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            force = force + integral_force
+>>>>>>> REPLACE
+</DIFF>

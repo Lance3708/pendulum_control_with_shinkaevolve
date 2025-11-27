@@ -1,0 +1,69 @@
+
+<NAME>
+tune_lqr_nonlinear_comp
+</NAME>
+
+<DESCRIPTION>
+Tuning the LQR controller for much more aggressive and precise control. The current controller is too conservative with low Q weights and high R penalty. Given the challenging setup (heavy, long pole with high friction), we need:
+1. Much higher Q weights for theta and dtheta to achieve rapid stabilization
+2. Lower R to allow stronger control forces
+3. Adding nonlinear gravity compensation for better performance at large angles
+This should dramatically improve both stabilization time and precision.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # LQR权重矩阵（更保守的次优设置，留出充分进化空间）
+        # Q: 显著降低权重，高度容忍误差 - 导致基础分数低
+        # R: 大幅增加权重，极度限制出力 - 导致响应慢，能耗高
+        Q = np.diag([2.0, 8.0, 0.05, 0.4])    # [x, theta, dx, dtheta] (更保守)
+        R = np.array([[3.0]])                  # 控制力惩罚极大 (非常不愿意用大力)
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # LQR权重矩阵（激进优化设置，追求快速精确稳定）
+        # Q: 大幅提高权重，特别是角度和角速度，追求极致精度
+        # R: 适度降低权重，允许必要的强力控制
+        Q = np.diag([15.0, 150.0, 2.0, 20.0])  # [x, theta, dx, dtheta] (激进)
+        R = np.array([[0.5]])                  # 控制力惩罚适中 (允许强力控制)
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # 非线性补偿增益
+        self.gravity_comp_gain = 0.8  # 重力补偿系数
+        self.damping_gain = 0.3       # 阻尼增益
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """增强LQR控制法则: u = -K*x + 非线性补偿"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # LQR控制项
+        state_vec = np.array([x, theta, dx, dtheta])
+        lqr_force = -self.K @ state_vec
+
+        # 非线性重力补偿（大角度时更有效）
+        gravity_comp = self.gravity_comp_gain * M_POLE * G * L_COM * np.sin(theta) / M_CART
+
+        # 速度阻尼补偿（应对高摩擦）
+        damping_comp = -self.damping_gain * dx
+
+        # 总控制力
+        total_force = lqr_force[0] + gravity_comp + damping_comp
+
+        return float(total_force)
+>>>>>>> REPLACE
+</DIFF>

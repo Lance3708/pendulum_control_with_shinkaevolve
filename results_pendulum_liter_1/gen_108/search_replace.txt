@@ -1,0 +1,33 @@
+<adaptive_swing_up_scaling>
+I'll implement an improved swing-up strategy that scales the assistance based on the system's natural dynamics, specifically using a normalized angular momentum metric. This approach recognizes that the long pendulum has a lower natural frequency and thus requires assistance that's appropriately scaled to its dynamics.
+</adaptive_swing_up_scaling>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Additive swing-up assist: only activates for large angles (>0.8 rad)
+        # Provides extra corrective impulse when pole is falling away from equilibrium
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # If theta*dtheta > 0, pole is falling further - need stronger correction
+            falling_factor = 1.0 + 0.5 * float(theta * dtheta > 0)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        return float(force[0])
+=======
+        # Additive swing-up assist: only activates for large angles (>0.8 rad)
+        # Provides extra corrective impulse when pole is falling away from equilibrium
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # If theta*dtheta > 0, pole is falling further - need stronger correction
+            # Normalized by natural frequency of the pendulum for better scaling
+            natural_freq = np.sqrt(G / L_COM)
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * natural_freq))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,73 @@
+<NAME>
+predictive_full_dynamics_second_order
+</NAME>
+
+<DESCRIPTION>
+Enhance predictive compensation per recommendation 1: Replace the simplified gravity-dominated theta_acc_est with a full nonlinear dynamics estimate using zero-force assumption, incorporating cart/joint friction, centrifugal force, and coupled accelerations exactly as in the simulator. Add second-order Taylor expansion for theta_pred to improve anticipation over ~1-2 timesteps. Use self.l consistently. Tune gain to -0.18 and tanh scale to 2.5 for stronger correction during critical phases. This provides more accurate foresight of uncontrolled divergence, enabling earlier and more precise interventions to reduce stabilization time and overshoot.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Enhanced predictive compensation with full dynamics and second-order extrapolation
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+        # Full zero-force dynamics for accurate uncontrolled prediction
+        f_cart_est = -self.b_c * dx
+        f_joint_est = -self.b_j * dtheta
+        temp = (f_cart_est + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+        theta_acc_est = (self.g * sin_theta - cos_theta * temp + f_joint_est / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+        # Second-order Taylor prediction
+        theta_pred = theta + dtheta * DT + 0.5 * theta_acc_est * DT * DT
+        dtheta_pred = dtheta + theta_acc_est * DT
+        # Corrective term based on predicted divergence
+        pred_divergence = theta_pred * dtheta_pred / (self.omega_n * self.l)
+        predictive_correction = -0.18 * pred_divergence * np.tanh(2.5 * abs(theta))
+        force += predictive_correction
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+midswing_divergence_aware_damping
+</NAME>
+
+<DESCRIPTION>
+Refine mid-swing damping per recommendation 3: Introduce a divergence-aware factor (1 + tanh(3 * theta * dtheta)) that multiplicatively scales the damping strength. This amplifies opposition to angular velocity when the pole is accelerating away from upright (theta * dtheta > 0, tanh > 0, factor > 1) and reduces it when converging (factor < 1 but >= 0), preventing unnecessary energy expenditure and over-correction during inward swings. Retains Gaussian activation for phase specificity, improving energy efficiency and smoother convergence.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+=======
+        # Mid-swing angular damping with divergence-aware activation
+        # Suppresses overshoot more aggressively when diverging
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            divergence_factor = 1.0 + np.tanh(3.0 * theta * dtheta)
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * divergence_factor
+            force += midswing_damp
+>>>>>>> REPLACE
+</DIFF>

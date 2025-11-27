@@ -1,0 +1,91 @@
+Looking at the performance metrics, the current program scores 4666.63, which is lower than the best performers at 4920.14. The key difference is that the best performers use:
+- Q = [4.5, 44.0, 0.6, 3.2]
+- Simpler gain scheduling with thresholds at 0.6 for theta and 1.0 for dtheta
+
+The current program uses more aggressive Q weights [5.0, 48.0, 0.6, 3.8] and earlier activation thresholds (0.35, 0.5), plus a synergy boost. This actually hurts performance - the stabilization time increased from 192 to 228 steps.
+
+The issue is that being too aggressive early on causes oscillations that take longer to damp out. The best approach is to use the proven optimal configuration with a small refinement.
+
+Based on recommendation #2, I'll try adding an additive swing-up assist term that only activates for very large angles (>0.8 rad), keeping the base LQR optimal near equilibrium. This decouples aggressive recovery from precise regulation.
+
+<NAME>
+additive_swing_assist_with_proven_base
+</NAME>
+
+<DESCRIPTION>
+Revert to the proven optimal LQR weights Q=[4.5, 44.0, 0.6, 3.2] and gain scheduling thresholds (0.6 for theta, 1.0 for dtheta) that achieved 4920.14 score. Then add an additive physics-informed swing-up assist term that only activates for large angles (>0.8 rad). This term uses the sign of theta*dtheta to determine if the pole is falling away from equilibrium and applies a corrective impulse. The key insight is that this additive term doesn't distort the optimal LQR feedback near equilibrium - it only provides extra authority during the critical initial swing-down phase when the pole is at 0.9 rad.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: more aggressive angular control for faster stabilization
+        Q = np.diag([5.0, 48.0, 0.6, 3.8])  # Higher angle and angular velocity penalties
+=======
+        # Proven optimal LQR weights from best performer (4920.14 score)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with enhanced gain scheduling for faster stabilization"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth gain scheduling using tanh for differentiable transitions
+        # Position-based gain: earlier activation and stronger boost for large angles
+        pos_gain = 1.0 + 0.5 * (np.tanh(5.0 * (abs(theta) - 0.35)) + 1.0) * 0.5
+
+        # Velocity-based gain: earlier activation for high angular velocity
+        vel_gain = 1.0 + 0.35 * (np.tanh(4.0 * (abs(dtheta) - 0.5)) + 1.0) * 0.5
+
+        # Synergistic boost: extra authority when pole is moving away from equilibrium
+        # (theta and dtheta have same sign means pole is falling further)
+        falling_away = theta * dtheta > 0
+        synergy_boost = 1.0 + 0.15 * falling_away * (np.tanh(2.0 * (abs(theta) - 0.3)) + 1.0) * 0.5
+
+        # Combined adaptive gain (multiplicative)
+        adaptive_gain = pos_gain * vel_gain * synergy_boost
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR with additive swing-up assist for large angles"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Proven optimal gain scheduling from best performer
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist: only activates for large angles (>0.8 rad)
+        # Provides extra corrective impulse when pole is falling away from equilibrium
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # If theta*dtheta > 0, pole is falling further - need stronger correction
+            falling_factor = 1.0 + 0.5 * float(theta * dtheta > 0)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

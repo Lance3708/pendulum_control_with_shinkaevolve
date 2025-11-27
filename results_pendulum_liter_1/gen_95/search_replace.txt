@@ -1,0 +1,104 @@
+Looking at the performance metrics, the current best score is 4920.15 with a stabilization time of 192 steps. The main areas for improvement are:
+
+1. **Time bonus** (currently 2233.79, max ~3000) - faster stabilization would help
+2. **Energy bonus** (currently 2492.71, max ~2500) - already near optimal
+3. **stable_x_error: 0.03** - slight cart position drift
+
+The key insight is that the current controller lacks a swing-up assist for the critical initial phase when starting from 0.9 rad. The best-performing variants included this assist. Additionally, I notice the current program doesn't have the swing-up assist that was present in some of the top performers.
+
+Let me propose adding a targeted swing-up assist that activates only during the critical large-angle phase, combined with a mild integral term for cart position to eliminate the steady-state error.
+
+<NAME>
+swing_up_assist_with_integral
+</NAME>
+
+<DESCRIPTION>
+Adding two enhancements to improve performance:
+
+1. **Swing-up assist for large angles (>0.8 rad)**: When the pole is at a large angle, especially when falling further away (theta*dtheta > 0), we add an additive impulse to help catch the falling pole faster. This was present in the top-performing variants achieving 4920.15.
+
+2. **Soft integral action on cart position**: A very mild integral term that only activates when near equilibrium (|theta| < 0.1 rad) to eliminate the 0.03m steady-state cart position error. This uses tanh-gated activation to prevent integral windup during the transient phase.
+
+The swing-up assist helps reduce stabilization time (improving time bonus), while the integral action improves final cart positioning (potentially improving success bonus).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+    def solve_lqr(self, A, B, Q, R):
+=======
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral state for cart position (soft steady-state correction)
+        self.x_integral = 0.0
+        self.ki_x = 0.15  # Mild integral gain
+
+    def solve_lqr(self, A, B, Q, R):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain (use simple product - proven more effective)
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR with swing-up assist and soft integral correction"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization using arctan2 for large angle safety
+        theta_norm = np.arctan2(np.sin(theta), np.cos(theta))
+
+        state_vec = np.array([x, theta_norm, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta_norm) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+
+        # Swing-up assist for large angles (>0.8 rad)
+        # Provides extra corrective impulse when pole is falling away from equilibrium
+        if abs(theta_norm) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta_norm) - 0.8))
+            # Stronger correction if falling further (theta*dtheta > 0)
+            falling_severity = 1.0 + np.tanh(3.0 * theta_norm * dtheta)
+            u_swing = 8.0 * swing_activation * np.sign(theta_norm) * falling_severity
+            force = force + u_swing
+
+        # Soft integral action on cart position - only near equilibrium
+        # Gated by tanh to prevent windup during transients
+        integral_gate = 0.5 * (1.0 + np.tanh(12.0 * (0.1 - abs(theta_norm))))
+        self.x_integral += x * DT * integral_gate
+        # Anti-windup: limit integral accumulation
+        self.x_integral = np.clip(self.x_integral, -0.5, 0.5)
+        force = force - self.ki_x * self.x_integral * integral_gate
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

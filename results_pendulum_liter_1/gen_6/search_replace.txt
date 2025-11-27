@@ -1,0 +1,115 @@
+<NAME>
+accurate_linearization_and_gain_scheduling
+</NAME>
+
+<DESCRIPTION>
+Implement an accurate linearization of the system dynamics at the upright equilibrium, incorporating the viscous friction on both cart and joint, as well as the precise coupling terms from the nonlinear equations of motion. This corrects the previous approximate model which had errors in instability rates (e.g., theta pole ~10.6 vs actual ~7.3) and coupling (x_theta -3.43 vs -2.37), and adds damping matrices for friction. Simultaneously, introduce gain scheduling with two LQR controllers: a conservative one (original Q/R) for large angles (|theta| >= 0.5 rad) to ensure safe initial stabilization without failure, and an aggressive one (higher state penalties, lower control penalty: Q=diag[20,150,1,10], R=0.2) for small angles to accelerate convergence, improve precision (base score), reduce stabilization time (time bonus), and enhance cart centering. This hybrid approach leverages the linear model's validity near equilibrium while maintaining robustness far away, directly addressing the slow stabilization (9s) and mediocre positioning errors in current metrics, pushing toward 5000+ scores.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # 系统参数
+        m = M_POLE  # 摆杆质量
+        M = M_CART  # 小车质量
+        l = L_COM   # 质心距离
+        g = G       # 重力加速度
+
+        # 线性化状态空间模型
+        A = np.array([
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, -m*g/M, 0, 0],
+            [0, (m+M)*g/(M*l), 0, 0]
+        ])
+
+        B = np.array([
+            [0],
+            [0],
+            [1/M],
+            [-1/(M*l)]
+        ])
+
+        # LQR权重矩阵（更保守的次优设置，留出充分进化空间）
+        # Q: 显著降低权重，高度容忍误差 - 导致基础分数低
+        # R: 大幅增加权重，极度限制出力 - 导致响应慢，能耗高
+        Q = np.diag([2.0, 8.0, 0.05, 0.4])    # [x, theta, dx, dtheta] (更保守)
+        R = np.array([[3.0]])                  # 控制力惩罚极大 (非常不愿意用大力)
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # 系统参数
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        mu = M + m
+        fc = FRICTION_CART
+        fjc = FRICTION_JOINT
+
+        # Accurate linearization at upright equilibrium (theta=0, dtheta=0, dx=0)
+        denom_theta = l * (4.0 / 3.0 - m / mu)
+        temp_F = 1.0 / mu
+        temp_dx = -fc / mu
+
+        # theta_acc partials
+        theta_theta = G / denom_theta
+        theta_dx = -temp_dx / denom_theta
+        theta_dtheta = -(fjc / (m * l)) / denom_theta
+        theta_F = -temp_F / denom_theta
+
+        # x_acc partials
+        ml_mu = m * l / mu
+        x_theta = -ml_mu * theta_theta
+        x_dx = temp_dx - ml_mu * theta_dx
+        x_dtheta = -ml_mu * theta_dtheta
+        x_F = temp_F - ml_mu * theta_F
+
+        A = np.array([
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [0.0, x_theta, x_dx, x_dtheta],
+            [0.0, theta_theta, theta_dx, theta_dtheta]
+        ])
+
+        B = np.array([
+            [0.0],
+            [0.0],
+            [x_F],
+            [theta_F]
+        ])
+
+        # Conservative LQR for large angles
+        Q_cons = np.diag([2.0, 8.0, 0.05, 0.4])
+        R_cons = np.array([[3.0]])
+        self.K_cons = self.solve_lqr(A, B, Q_cons, R_cons)
+
+        # Aggressive LQR for near-upright fast convergence
+        Q_aggr = np.diag([20.0, 150.0, 1.0, 10.0])
+        R_aggr = np.array([[0.2]])
+        self.K_aggr = self.solve_lqr(A, B, Q_aggr, R_aggr)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive gain LQR: conservative (|theta| >= 0.5 rad), aggressive near upright."""
+        x, theta, dx, dtheta = state
+        theta_wrapped = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        if abs(theta_wrapped) < 0.5:
+            K = self.K_aggr
+        else:
+            K = self.K_cons
+        state_vec = np.array([x, theta_wrapped, dx, dtheta])
+        force = -K @ state_vec
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,252 @@
+<NAME>
+three_phase_controller
+</NAME>
+
+<DESCRIPTION>
+The current controller is mathematically complex and based on LQR, which we are instructed to avoid. It also tries to do too many things at once (adaptive gains, predictive compensation, integral control) without clear phase separation.
+
+My new approach implements a Three Phase Controller inspired by human balancing behavior:
+1. EMERGENCY: When the pole is falling fast (>0.5 rad/s) or very tilted (>0.8 rad), react immediately with strong counter-force proportional to angular velocity and position
+2. GUIDANCE: As pole approaches vertical, switch to predictive control - push cart in direction of pendulum's momentum to catch it smoothly
+3. PRECISION: Once nearly balanced (<0.1 rad, <0.3 m/s), apply gentle damping and centering with simple P-control
+
+This design uses no matrix operations, no LQR, and no Riccati equations - just pure physical intuition. The transitions between phases are sharp and decisive, not blended.
+
+Key innovations:
+- Phase detection based on combined state thresholds
+- In emergency mode: focus only on saving the pole, ignore cart position
+- In guidance mode: predict crossing point and position cart there
+- In precision mode: minimal energy adjustments to maintain balance
+- All calculations use basic arithmetic and trig functions
+
+The philosophy is: "Different problems require different minds. Panic when dying, guide when approaching, whisper when balanced."
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Adaptive Cross-Coupled LQR with Mid-Swing Damping and Predictive Compensation
+
+    Key innovations:
+    1. State-dependent cross-coupling in Q-matrix for better coordination
+    2. Mid-swing angular damping to suppress momentum overshoot
+    3. Predictive momentum compensation for earlier counteraction
+    4. Refined integral control with dual gating
+    """
+
+    def __init__(self):
+        # System parameters
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        self.Mtot = self.M + self.m
+        self.denom0 = self.l * (4.0 / 3.0 - self.m / self.Mtot)
+        self.b_c = FRICTION_CART
+        self.b_j = FRICTION_JOINT
+
+        # Build base A matrix
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+        A[3, 1] = self.g / self.denom0
+        A[3, 2] = self.b_c / (self.Mtot * self.denom0)
+        A[3, 3] = -self.b_j / (self.m * self.l * self.denom0)
+        A[2, 1] = -(self.m * self.l / self.Mtot) * A[3, 1]
+        A[2, 2] = -self.b_c / self.Mtot - (self.m * self.l / self.Mtot) * A[3, 2]
+        A[2, 3] = self.b_j / (self.Mtot * self.denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / self.Mtot + (self.m * self.l) / (self.Mtot**2 * self.denom0)
+        B[3, 0] = -1.0 / (self.Mtot * self.denom0)
+
+        # Base Q with proven optimal diagonal weights
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        # Add cross-coupling terms for theta-dtheta coordination
+        Q[1, 3] = 0.8
+        Q[3, 1] = 0.8
+        R = np.array([[1.0]])
+
+        self.A = A
+        self.B = B
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Adaptive LQR with cross-coupling, mid-swing damping, and predictive compensation"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # Base LQR force with state-dependent cross-coupling enhancement
+        # Intensify theta-dtheta coupling when angle is large
+        cross_coupling_boost = 1.0 + 0.5 * np.tanh(3.0 * abs(theta))
+
+        # Compute base force
+        base_force = -self.K @ state_vec
+
+        # Adaptive gain scheduling with proven parameters
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Mid-swing angular damping (0.3-0.7 rad range)
+        # Suppresses momentum overshoot during high-energy transition
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)  # Gaussian centered at 0.5 rad
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+
+        # Predictive momentum compensation
+        # Estimate angular acceleration and extrapolate dtheta
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+
+        # Simplified theta acceleration estimate (gravity-dominated)
+        theta_acc_est = (self.g * sin_theta - self.b_j * dtheta / (self.m * self.l)) / \
+                        (self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot))
+
+        dtheta_pred = dtheta + theta_acc_est * DT
+
+        # Corrective term based on predicted divergence
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        return float(force[0])
+
+# EVOLVE-BLOCK-END
+=======
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Three Phase Controller - Inspired by human balancing reflexes
+    PHASE 1: Emergency (save the falling pole)
+    PHASE 2: Guidance (predict and intercept)
+    PHASE 3: Precision (gentle corrections)
+
+    Philosophy: Different problems need different solutions. Be decisive.
+    """
+
+    def __init__(self):
+        # Phase thresholds
+        self.EMERGENCY_ANGLE = 0.8    # rad (~45 degrees)
+        self.EMERGENCY_OMEGA = 0.5    # rad/s
+        self.GUIDANCE_ANGLE = 0.3     # rad (~17 degrees)
+        self.GUIDANCE_OMEGA = 0.8     # rad/s
+        self.PRECISION_ANGLE = 0.1    # rad (~5 degrees)
+        self.PRECISION_SPEED = 0.3    # m/s
+
+        # Emergency phase gains - strong and fast
+        self.K_emergency_pos = 80.0   # Position feedback gain
+        self.K_emergency_vel = 40.0   # Velocity feedback gain
+
+        # Guidance phase gains - predictive
+        self.K_predictive = 35.0      # Predictive momentum matching
+        self.K_centering = 15.0       # Centering tendency
+
+        # Precision phase gains - gentle
+        self.Kp_angle = 25.0          # Proportional angle control
+        self.Kp_omega = 12.0          # Proportional angular velocity
+        self.Kp_position = 8.0        # Proportional position control
+        self.Kp_velocity = 5.0        # Proportional velocity control
+
+        # Internal state
+        self.previous_theta = 0.0
+        self.previous_x = 0.0
+
+    def get_action(self, state):
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Phase determination - CRISP boundaries
+        is_emergency = (abs(theta) > self.EMERGENCY_ANGLE or
+                       abs(dtheta) > self.EMERGENCY_OMEGA)
+
+        is_guidance = (abs(theta) > self.GUIDANCE_ANGLE and
+                      abs(dtheta) <= self.GUIDANCE_OMEGA and
+                      abs(dx) < 1.0)
+
+        is_precision = (abs(theta) <= self.PRECISION_ANGLE and
+                       abs(dx) <= self.PRECISION_SPEED)
+
+        # EMERGENCY PHASE: Save the pole at all costs
+        if is_emergency:
+            # Focus on angular stabilization, ignore position
+            force = (-np.sign(theta) * self.K_emergency_pos * abs(theta)**1.2
+                    - np.sign(dtheta) * self.K_emergency_vel * abs(dtheta)**1.1)
+
+        # GUIDANCE PHASE: Predict and intercept
+        elif is_guidance:
+            # Predict where pole will cross zero and move cart there
+            time_to_vertical = abs(theta / dtheta) if abs(dtheta) > 0.1 else 0.5
+
+            # Predict cart movement needed - lead the target
+            prediction_distance = 0.8 * time_to_vertical * abs(dtheta) * np.sign(theta)
+            centering_force = -self.K_centering * x
+
+            # Main control: push in direction of predicted fall
+            predictive_force = self.K_predictive * prediction_distance * np.sign(dtheta)
+
+            force = predictive_force + centering_force
+
+        # PRECISION PHASE: Gentle corrections
+        else:
+            # Light P-control on all states
+            force_angle = -self.Kp_angle * theta
+            force_omega = -self.Kp_omega * dtheta
+            force_position = -self.Kp_position * x
+            force_velocity = -self.Kp_velocity * dx
+
+            force = (force_angle + force_omega + force_position + force_velocity)
+
+        return float(force)
+
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+</DIFF>

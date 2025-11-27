@@ -1,0 +1,61 @@
+<NAME>
+principled_integral_feedback
+</NAME>
+
+<DESCRIPTION>
+This edit introduces a fundamental correction to the control logic in the balancing phase and refines the damping mechanism in the recovery phase. The central hypothesis is that the previous controller's success was despite a physically incorrect positive-feedback integral term, leading to a fragile local optimum. By correcting this, we establish a more robust foundation for precision control.
+
+1.  **Corrected Integral Feedback:** The integral force calculation in the balancing phase was changed from `force + integral_force` to `force - integral_force`. The integral term accumulates position error `x`. To counteract a positive `x`, a negative force is required. The original formulation created a positive feedback loop, pushing the cart further from the center. The new formulation institutes proper negative feedback, which is physically correct and essential for stable error correction.
+
+2.  **Restored Precision Tuning:** The last version saw an increase in `final_x_error` from 0.09 to 0.29. This was likely due to overly aggressive position correction gains (`-1.8*x`, `-0.9*dx`) and too-fast integral decay (`0.90`). To restore the lost precision, I've reverted these parameters to their previously successful values: `position_correction` gains are now `-1.5*x` and `-0.8*dx`, and the integral decay factor is `0.94`.
+
+3.  **Simplified Recovery Damping:** In the recovery phase, the `is_moving_away` gate was removed from the mid-swing damping calculation. The `K_d_midswing` term already contains sophisticated phase-plane logic (`1.0 + np.tanh(3.0 * theta * dtheta)`) that modulates damping based on whether the pole is moving toward or away from the vertical. The extra gate was redundant and made the control action less smooth. This simplification improves elegance and should lead to more efficient energy management during recovery.
+
+Together, these changes aim to significantly improve the final positioning accuracy (`final_x_error`) by implementing a physically sound control law, while maintaining the excellent stabilization speed of the previous versions.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+                # Smart damping: only damp when moving away from vertical
+                is_moving_away = 0.5 * (1.0 + np.tanh(4.0 * theta * dtheta))
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * is_moving_away
+=======
+                # Damping is modulated by K_d_midswing based on phase plane, so explicit gating is redundant.
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+                lower_limit = -1.5 + 0.4 * x  # More negative when x is negative
+                upper_limit = 1.5 + 0.4 * x   # More positive when x is positive
+                self.integral_x = np.clip(self.integral_x, lower_limit, upper_limit)
+            else:
+                self.integral_x *= 0.90  # Faster decay for quicker response to changes
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # Add integral force (LQR already handles the sign properly)
+            force = force + integral_force
+
+            # Enhanced position correction for better centering - always active in balancing
+            stability_factor = np.exp(-6.0 * (theta**2 + 0.25 * dtheta**2))
+            if stability_factor > 0.15:  # Lower threshold for more active centering
+                # Stronger position correction with velocity damping
+                position_correction = -1.8 * x * stability_factor - 0.9 * dx * stability_factor
+                force = force + position_correction
+=======
+                lower_limit = -1.5 + 0.4 * x  # More negative when x is negative
+                upper_limit = 1.5 + 0.4 * x   # More positive when x is positive
+                self.integral_x = np.clip(self.integral_x, lower_limit, upper_limit)
+            else:
+                self.integral_x *= 0.94  # Revert to slower decay to improve final settling
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # Apply integral force with negative feedback to correct position error
+            force = force - integral_force
+
+            # Enhanced position correction for better centering - always active in balancing
+            stability_factor = np.exp(-6.0 * (theta**2 + 0.25 * dtheta**2))
+            if stability_factor > 0.15:  # Lower threshold for more active centering
+                # Revert to previous successful gains to improve final position error
+                position_correction = -1.5 * x * stability_factor - 0.8 * dx * stability_factor
+                force = force + position_correction
+>>>>>>> REPLACE
+</DIFF>

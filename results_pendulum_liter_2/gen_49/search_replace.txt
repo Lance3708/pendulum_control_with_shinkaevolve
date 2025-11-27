@@ -1,0 +1,58 @@
+**Changes:**
+
+<NAME>
+adaptive_integral_control_with_position_centering
+
+<DESCRIPTION>
+The current program achieves good performance (4636.78) but has room for improvement in position control (final_x_error: 0.50). This change enhances the integral control system by:
+1. Adding adaptive integral gain scheduling based on proximity to equilibrium
+2. Implementing a direct position correction term when the pole is stable
+3. Widening the integral gating thresholds for earlier position correction
+4. Increasing the integral gain for stronger position centering
+
+These changes build on the successful direction-gated mid-swing damping and predictive compensation while addressing the position error weakness. The adaptive integral gain reduces windup during transients while maintaining strong correction near equilibrium, and the direct position correction provides immediate response when the system is stable.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Dual-gated integral action (angle AND velocity gating)
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        # Corrected sign: integral force must oppose the accumulated error
+        force = force - integral_force
+=======
+        # Enhanced dual-gated integral action with adaptive gain
+        # Wider gates for earlier position correction
+        angle_gate = np.tanh(10.0 * (0.15 - abs(theta)))
+        velocity_gate = np.tanh(6.0 * (1.2 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive integral gain: higher near equilibrium, lower during transients
+        K_i_adaptive = 1.0 * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.3, 1.0)
+
+        if integral_gate > 0.05:  # Lower threshold for activation
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -2.0, 2.0)  # Wider range
+        else:
+            self.integral_x *= 0.97  # Slower decay
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force - integral_force
+
+        # Direct position centering when pole is stable
+        stability_factor = np.exp(-10.0 * (theta**2 + 0.5 * dtheta**2))
+        if stability_factor > 0.3:
+            position_correction = -0.8 * x * stability_factor - 0.4 * dx * stability_factor
+            force = force + position_correction
+>>>>>>> REPLACE
+</DIFF>

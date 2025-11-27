@@ -1,0 +1,37 @@
+<NAME>
+asymmetric_integral_windup
+</NAME>
+
+<DESCRIPTION>
+The current controller uses symmetric integral windup limits (`clip(integral_x, -1.2, 1.2)`), which treats positive and negative position errors equally. However, this ignores the dynamic coupling between cart movement and pole balance: correcting in one direction may require more persistent integral action than the other due to friction asymmetry or momentum effects.
+
+Inspired by biological motor control where corrective actions are often directionally biased for efficiency, we introduce *asymmetric windup limits* that allow slightly greater accumulation in the direction opposite to current cart drift. This enables faster recovery when the cart is stuck on one side without sacrificing stability.
+
+When the cart is drifting right (positive x), we allow a larger negative integral (pulling left) by lowering the lower bound further. Conversely, when drifting left, we raise the upper bound. The adjustment is small (±0.4*x) but creates a "bias field" that helps overcome static friction and improves centering precision.
+
+This change specifically targets the `final_x_error` (currently 0.09) and `stable_x_error` (0.32), aiming to reduce both through smarter integral management without increasing energy use.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # HYBRID FEATURE: Tighter windup limits for more responsive integral action
+                self.integral_x = np.clip(self.integral_x, -1.2, 1.2)
+            else:
+                # HYBRID FEATURE: Faster decay for quicker response to state changes
+                self.integral_x *= 0.94
+=======
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Asymmetric windup limits: expand tolerance in corrective direction
+                # When x > 0, we need negative integral → lower bound becomes more negative
+                # When x < 0, we need positive integral → upper bound becomes more positive
+                lower_limit = -1.2 - 0.4 * x
+                upper_limit = 1.2 + 0.4 * x
+                self.integral_x = np.clip(self.integral_x, lower_limit, upper_limit)
+            else:
+                # Faster decay for quicker response to state changes
+                self.integral_x *= 0.94
+>>>>>>> REPLACE
+</DIFF>

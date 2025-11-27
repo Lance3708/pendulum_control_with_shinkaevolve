@@ -1,0 +1,214 @@
+import numpy as np
+
+# --- Physics Constants ---
+M_CART = 1.0       # Mass of the cart (kg)
+M_POLE = 0.35      # Mass of the pole (kg) - 更重，大幅增加控制难度
+L_POLE = 2.5       # Total length of the pole (m) - 更长，极不稳定
+L_COM = L_POLE / 2 # Length to center of mass (m)
+G = 9.81           # Gravity (m/s^2)
+FRICTION_CART = 0.35 # Coefficient of friction for cart - 高摩擦，更多能量损失
+FRICTION_JOINT = 0.25 # Coefficient of friction for joint - 高关节摩擦
+DT = 0.02          # Time step (s)
+MAX_STEPS = 1000   # 20 seconds simulation
+
+def simulate_pendulum_step(state, force, dt):
+    """
+    Simulates one time step of the Single Inverted Pendulum.
+
+    State vector: [x, theta, dx, dtheta]
+    - x: Cart position (m)
+    - theta: Pole angle (rad), 0 is upright
+    - dx: Cart velocity (m/s)
+    - dtheta: Pole angular velocity (rad/s)
+
+    Args:
+        state: numpy array of shape (4,)
+        force: scalar float, force applied to the cart (N)
+        dt: float, time step (s)
+
+    Returns:
+        next_state: numpy array of shape (4,)
+    """
+    x, theta, dx, dtheta = state
+
+    # Precompute trig terms
+    sin_theta = np.sin(theta)
+    cos_theta = np.cos(theta)
+
+    # Equations of Motion (Non-linear)
+    # derived from Lagrangian dynamics
+
+    # Total mass
+    M_total = M_CART + M_POLE
+
+    # Friction forces
+    f_cart = -FRICTION_CART * dx
+    f_joint = -FRICTION_JOINT * dtheta
+
+    # Denominator for solving linear system of accelerations
+    # Derived from solving the system:
+    # 1) (M+m)x_dd + (ml cos)theta_dd = F + f_cart + ml*theta_d^2*sin
+    # 2) (ml cos)x_dd + (ml^2)theta_dd = mgl sin + f_joint
+
+    temp = (force + f_cart + M_POLE * L_COM * dtheta**2 * sin_theta) / M_total
+
+    theta_acc = (G * sin_theta - cos_theta * temp + f_joint / (M_POLE * L_COM)) / \
+                (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / M_total))
+
+    x_acc = temp - (M_POLE * L_COM * theta_acc * cos_theta) / M_total
+
+    # Euler integration
+    next_x = x + dx * dt
+    next_theta = theta + dtheta * dt
+    next_dx = dx + x_acc * dt
+    next_dtheta = dtheta + theta_acc * dt
+
+    return np.array([next_x, next_theta, next_dx, next_dtheta])
+
+
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Intuitive Phasic Controller
+
+    Core Philosophy: Replaces abstract matrix-based control with a simple, physically
+    interpretable set of rules tailored to three distinct operational phases.
+    This approach adheres to the "no matrix multiplication" constraint by design.
+    It combines this new core with proven, high-performing techniques cherry-picked
+    from previous successful controllers, such as phase-plane adaptive damping and
+    asymmetric integral windup.
+
+    Phases:
+    1. Emergency (|theta| > 0.8 rad): Aggressive directional push to prevent failure.
+    2. Recovery (0.3 < |theta| <= 0.8 rad): Strong, intuitive PD control combined with
+       smart damping to manage momentum and guide the pole upright.
+    3. Balancing (|theta| <= 0.3 rad): Precision PD control augmented with a
+       sophisticated integral term for perfect centering.
+    """
+
+    def __init__(self):
+        """
+        No pre-computation. State is managed entirely within the action loop.
+        """
+        self.integral_x = 0.0
+        self.last_phase = "emergency"  # System starts in emergency state
+
+    def get_action(self, state):
+        x, theta, dx, dtheta = state
+        abs_theta = abs(theta)
+
+        # 1. Determine current operational phase
+        if abs_theta > 0.8:
+            current_phase = "emergency"
+        elif abs_theta > 0.3:
+            current_phase = "recovery"
+        else:
+            current_phase = "balancing"
+
+        # 2. Handle phase transitions (e.g., reset integral)
+        if current_phase != self.last_phase:
+            if current_phase == "balancing":
+                self.integral_x *= 0.5  # Partially reset for a smooth transition
+            self.last_phase = current_phase
+
+        # 3. Apply phase-specific control logic
+        force = 0.0
+
+        if current_phase == "emergency":
+            # GOAL: Survive and reverse the fall.
+            # ACTION: A strong push in the direction of the lean, boosted if falling fast.
+            swing_activation = np.tanh(8.0 * (abs_theta - 0.8))
+            energy_direction = np.tanh(3.0 * theta * dtheta)  # Pushes harder when moving away from center
+            u_swing = 13.0 * swing_activation * np.sign(theta) * (1.0 + 0.5 * energy_direction)
+            force += u_swing
+            force -= 4.0 * dx # Strong cart damping to prevent overshooting limits
+
+        elif current_phase == "recovery":
+            # GOAL: Dampen the large swing and guide the pole towards vertical.
+            # ACTION: A strong, intuitive PD controller plus smart angular velocity damping.
+            k_theta = 55.0   # Very strong reaction to angle
+            k_dtheta = 10.0  # Strong reaction to angular velocity
+            k_x = 1.0        # Gentle correction for position
+            k_dx = 2.0       # Gentle correction for cart speed
+            force += k_theta * theta + k_dtheta * dtheta - k_x * x - k_dx * dx
+
+            # Add proven mid-swing angular damping to prevent overshoot.
+            # It damps more when the pole is moving away from the center.
+            mid_swing_activation = np.exp(-5.0 * (abs_theta - 0.55)**2)
+            K_d_base = 3.5
+            K_d_midswing = K_d_base * (1.0 + np.tanh(3.0 * theta * dtheta))
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force += midswing_damp
+
+        else:  # balancing phase
+            # GOAL: Achieve and hold a perfectly stable, centered position.
+            # ACTION: A finely tuned intuitive PD controller with an advanced integral term.
+            k_theta = 48.0   # Strong reaction to angle
+            k_dtheta = 8.5   # Strong reaction to angular velocity
+            k_x = 2.2        # Stronger focus on centering
+            k_dx = 3.8       # Stronger damping for stability
+            force += k_theta * theta + k_dtheta * dtheta - k_x * x - k_dx * dx
+
+            # Advanced integral control for zero steady-state error
+            angle_gate = np.tanh(12.0 * (0.12 - abs_theta))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            K_i_adaptive = 0.95 * np.exp(-3.0 * (abs_theta + 0.6 * abs(dtheta) + 0.3 * abs(x)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.30, 0.95)
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Asymmetric windup limits provide more room for integral to correct large position errors.
+                lower_limit = -1.5 + 0.4 * x
+                upper_limit = 1.5 + 0.4 * x
+                self.integral_x = np.clip(self.integral_x, lower_limit, upper_limit)
+            else:
+                self.integral_x *= 0.92  # Decay when not in the stability sweet spot
+
+            force -= K_i_adaptive * integral_gate * self.integral_x
+
+            # Final explicit position correction for high precision centering
+            stability_factor = np.exp(-6.0 * (theta**2 + 0.25 * dtheta**2))
+            if stability_factor > 0.15:
+                position_correction = -1.5 * x * stability_factor - 0.8 * dx * stability_factor
+                force += position_correction
+
+        return float(force)
+
+# EVOLVE-BLOCK-END
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    force = controller.get_action(state)
+    return float(np.clip(force, -100.0, 100.0))
+
+def run_simulation(seed=None):
+    """
+    Runs the simulation loop.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Initial state: 1.02 rad (~58 degrees)
+    # This matches the setup of the provided context programs.
+    state = np.array([0.0, 1.02, 0.0, 0.0])
+
+    states = [state]
+    forces = []
+
+    for _ in range(MAX_STEPS):
+        force = get_control_action(state)
+        # Clip force to realistic limits
+        force = np.clip(force, -100.0, 100.0)
+
+        next_state = simulate_pendulum_step(state, force, DT)
+
+        states.append(next_state)
+        forces.append(force)
+
+        state = next_state
+
+    return np.array(states), np.array(forces)

@@ -1,0 +1,87 @@
+<NAME>
+adaptive_integral_damping
+</NAME>
+
+<DESCRIPTION>
+The current controller uses a fixed integral gain (K_i=0.8) and simple leaky integration for the cart position error, which can lead to either sluggish response or overshoot depending on system conditions. This proposal introduces adaptive integral control with dynamic damping based on angular dynamics.
+
+Key innovations:
+1. Velocity-modulated integral gain: Reduces K_i when |dtheta| > 1.5 rad/s to prevent integral windup during aggressive swing-up maneuvers
+2. Acceleration-aware integral clamping: Limits integral accumulation when angular acceleration exceeds threshold, anticipating instability
+3. State-dependent decay rate: Increases leak rate when pole is far from upright, providing natural anti-windup
+
+This approach recognizes that integral action should be context-sensitive - aggressive when stabilizing near equilibrium but conservative during high-energy transients. The adaptation uses readily available state derivatives estimated from current state, maintaining computational efficiency while significantly improving transient response.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.8  # Integral gain for cart position
+
+        # Natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+=======
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i_base = 0.8  # Base integral gain for cart position
+        self.dtheta_threshold = 1.5  # Angular velocity threshold for integral modulation
+        self.theta_acc_threshold = 8.0  # Angular acceleration threshold for clamping
+
+        # Natural frequency for normalized falling severity
+        self.omega_n = np.sqrt(G / L_COM)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (<0.1 rad)
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        # Enhanced adaptive integral control with dynamic damping
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+
+        if integral_gate > 0.1:
+            # Adaptive integral gain: reduce when angular velocity is high
+            vel_modulator = np.tanh(self.dtheta_threshold / (abs(dtheta) + 0.1))
+            adaptive_K_i = self.K_i_base * vel_modulator
+
+            # Estimate angular acceleration for proactive clamping
+            # Using simplified linear approximation around current state
+            m = M_POLE
+            M = M_CART
+            l = L_COM
+            Mtot = M + m
+            denom0 = l * (4.0 / 3.0 - m / Mtot)
+
+            temp_term = (force + M_POLE * L_COM * dtheta**2 * np.sin(theta)) / Mtot
+            theta_acc_est = (G * np.sin(theta) - np.cos(theta) * temp_term) / denom0
+
+            # Clamp integral accumulation during high acceleration
+            acc_clamp = np.tanh(self.theta_acc_threshold / (abs(theta_acc_est) + 0.1))
+
+            # Update integral with adaptive parameters
+            integral_update = x * DT * acc_clamp
+            self.integral_x += integral_update
+
+            # Anti-windup: limit integral magnitude based on stability risk
+            max_integral = 2.0 * (1.0 + np.exp(-3.0 * abs(theta)))
+            self.integral_x = np.clip(self.integral_x, -max_integral, max_integral)
+        else:
+            # State-dependent decay: faster decay when angle is large
+            decay_rate = 0.85 + 0.1 * np.exp(-5.0 * max(0.0, 0.1 - abs(theta)))
+            self.integral_x *= decay_rate
+            adaptive_K_i = self.K_i_base
+
+        integral_force = adaptive_K_i * integral_gate * self.integral_x
+        force = force + integral_force
+>>>>>>> REPLACE
+</DIFF>

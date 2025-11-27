@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "cannot access local variable 'theta_acc_est' where it is not associated with a value"
+}

@@ -1,0 +1,112 @@
+<NAME>
+add_soft_cart_integral
+</NAME>
+<DESCRIPTION>
+Augment control with soft-switched integral action on cart position to eliminate residual stable_x_error=0.03m, improving base_score and precision components. Integral accumulates only via x * DT, fed back through tanh-scheduled gain active solely when |theta| &lt; ~0.1 rad (np.tanh(12*(0.1-abs(theta))) ramps smoothly from 0 outside to 1 inside). Low Ki=1.5 ensures minimal energy impact (already near-max bonus) while perfectly centering cart post-stabilization, exploiting the controller's robust transients. This addresses the consistent bias across top priors without destabilizing large-angle phases.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: enhanced angular velocity damping for improved stability
+        # Q[1]=38.0 for angle correction, Q[3]=3.4 for stronger angular velocity damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.4])
+        R = np.array([[1.0]])
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # Optimized LQR weights: enhanced angular velocity damping for improved stability
+        # Q[1]=38.0 for angle correction, Q[3]=3.4 for stronger angular velocity damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.4])
+        R = np.array([[1.0]])
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        self.x_int = 0.0
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Soft-switched integral for cart centering near equilibrium
+        int_schedule = np.tanh(12.0 * (0.1 - abs(theta)))
+        self.x_int += x * DT
+        u_int = 1.5 * self.x_int * int_schedule
+        force += u_int
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+robust_arctan2_normalization
+</NAME>
+<DESCRIPTION>
+Replace modulo-based angle normalization with np.arctan2(np.sin(theta), np.cos(theta)) for numerical robustness during potential rapid transients or wrapping. Ensures precise |theta| &lt; pi even under aggressive control or numerical drift, preserving gain scheduling and integral activation thresholds. Critical for hybrid logic reliability in extreme dynamics (long pole, high initial angle), supporting faster stabilization without risk of discontinuity.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+=======
+        # Robust angle normalization to principal range
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+>>>>>>> REPLACE
+</DIFF>
+<NAME>
+restore_best_lqr_weights
+</NAME>
+<DESCRIPTION>
+Restore proven highest-performing Q=[4.5,44.0,0.6,3.2] from 4920.22-scoring programs, which achieved 192-step stabilization vs current 198. This balanced weighting (higher theta penalty, tuned velocities) accelerates angle capture under heavy/long pole while damping oscillations optimally, directly boosting time_bonus. Matches historical peak before further gains via integral/arctan2.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: enhanced angular velocity damping for improved stability
+        # Q[1]=38.0 for angle correction, Q[3]=3.4 for stronger angular velocity damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.4])
+=======
+        # Proven optimal LQR weights from 4920-scoring best performer
+        # Higher theta penalty for faster correction, tuned velocity damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+>>>>>>> REPLACE
+</DIFF>

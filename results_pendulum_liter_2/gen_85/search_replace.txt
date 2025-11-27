@@ -1,0 +1,241 @@
+ 0.3 * x
+
+            upper_bound = 1.2 - 0.3 * x
+
+
+
+            # Update integral
+
+            self.integral_x += x * DT
+
+            self.integral_x = np.clip(self.integral_x, lower_bound, upper_bound)
+
+It has blank line after upper_bound.
+
+In prompt it's formatted with blank.
+
+To match exactly, include more lines.
+
+For SEARCH:
+
+            lower_bound = -1.2 - 0.3 * x
+
+            upper_bound = 1.2 - 0.3 * x
+
+
+
+            # Update integral
+
+            self.integral_x += x * DT
+
+            self.integral_x = np.clip(self.integral_x, lower_bound, upper_bound)
+
+Yes.
+
+The error "No changes applied" means no match.
+
+Perhaps indentation is 12 spaces or something.
+
+Since code is python, indentation important.
+
+Assume it's 4 spaces per level.
+
+Class method is def get_action indented 4, then inside if/else 8 or 12.
+
+To be safe, make small SEARCH just the two lines.
+
+But previous failed.
+
+The human says "The previous edit was not successful. No changes applied. Try again."
+
+So my response had one edit, but failed because SEARCH not exact.
+
+I need to propose new edits, perhaps multiple, but exact match.
+
+Since current is the phase-reflex, I need to extract exactly.
+
+Let me assume the lines are as written.
+
+Perhaps there is no blank line, or is.
+
+To fix, perhaps do several small edits.
+
+Since task to improve, pick one rec.
+
+But to get higher score, since paradigm shift needed, perhaps remove LQR and implement simple rule based.
+
+Core philosophy: "Catch where the rod is falling, with urgency scaled by speed, different rules for fall/recover/balance"
+
+get_control_action without class memory first, but class has integral, memory.
+
+To simple: phase based if then logic no LQR.
+
+Replace the base force = -dot(K, state) with a PD like -20*theta -15*dtheta -8*x -3*dx
+
+Tune by hand to match LQR approximate.
+
+Since LQR gains from Q diag 4.5 x,44 theta,0.6 dx,3.2 dtheta, K roughly K_theta high ~20-30, K_x ~5-10 etc.
+
+Yes.
+
+But to pass constraints, remove solve_continuous_are, matrices.
+
+This is paradigm shift.
+
+Since 180 used LQR plateau, remove it.
+
+Yes, bold.
+
+New base_force in all phases: force = -30 * theta - 12 * dtheta - 6 * x - 2.5 * dx
+
+Then phases add on top.
+
+No need _compute_lqr_gains, self.K
+
+Simple arithmetic.
+
+Also no scipy import.
+
+Yes.
+
+Since controller init has self.K = self._compute_lqr_gains()
+
+To replace.
+
+Also remove the method _compute_lqr_gains
+
+And _predict_theta_acc keep for prediction.
+
+For integral keep memory.
+
+This reduces computation, simpler.
+
+To fast, tune gains high.
+
+Let's propose that.
+
+First, remove LQR.
+
+Edit1: remove _compute_lqr_gains method, set no self.K
+
+SEARCH the __init__ self.K = ... and omega_n ok.
+
+Let's write.
+
+To make verifiable, small change first.
+
+Since previous failed, perhaps start with rec3 damping, find exact code.
+
+The damping block exact:
+
+            # Direction-aware mid-swing damping (only when returning)
+
+            # theta*dtheta < 0 means returning to vertical
+
+            is_returning = theta * dtheta < 0
+
+            if is_returning and abs_theta > 0.25 and abs_theta < 0.75:
+
+                mid_activation = np.exp(-4.0 * (abs_theta - 0.5)**2)
+
+                K_damp = 3.0 * (1.0 + np.tanh(3.0 * abs(theta * dtheta)))
+
+                force += K_damp * dtheta * mid_activation
+
+Yes, this is unique.
+
+SEARCH this entire block.
+
+Replace with rec3 version.
+
+This should match.
+
+Then name refine_midswing_damping
+
+Yes.
+
+Then next edits.
+
+Let's do that.
+
+First edit: midswing damping to rec3
+
+<NAME>refine_midswing_damping</NAME>
+
+<DESCRIPTION>Replace mid-swing damping per rec #3 with signed adaptive gain K_d = 2.6*tanh(3*theta*dtheta) +0.8 for near-zero when returning (theta*dtheta<0), strong when diverging. Use -K*dtheta sign as in high-performers, narrower activation at 0.55 rad center, range 0.25-0.85. Reduces energy waste during corrective motion, improves avg_energy without slowing stabilization (targets 214 steps).</DESCRIPTION>
+
+<DIFF>
+
+<<<<<<< SEARCH
+
+            # Direction-aware mid-swing damping (only when returning)
+
+            # theta*dtheta < 0 means returning to vertical
+
+            is_returning = theta * dtheta < 0
+
+            if is_returning and abs_theta > 0.25 and abs_theta < 0.75:
+
+                mid_activation = np.exp(-4.0 * (abs_theta - 0.5)**2)
+
+                K_damp = 3.0 * (1.0 + np.tanh(3.0 * abs(theta * dtheta)))
+
+                force += K_damp * dtheta * mid_activation
+
+=======
+
+            # Mid-swing damping with phase-plane coefficient (strong diverging, weak returning)
+
+            if abs_theta > 0.25 and abs_theta < 0.85:
+
+                mid_swing_activation = np.exp(-5.0 * (abs_theta - 0.55)**2)
+
+                K_d_midswing = 2.6 * np.tanh(3.0 * theta * dtheta) + 0.8
+
+                force += - K_d_midswing * dtheta * mid_swing_activation
+
+>>>>>>> REPLACE
+
+</DIFF>
+
+Yes, this should match exactly, including comments.
+
+Second edit: predictive decouple centrifugal rec2
+
+The block:
+
+            # Predictive correction with centrifugal isolation
+
+            theta_acc = self._predict_theta_acc(theta, dtheta, dx, force)
+
+            dtheta_pred = dtheta + theta_acc * DT
+
+
+
+            pred_div = theta * dtheta_pred / (self.omega_n * self.l)
+
+            # Only correct when diverging (pred_div > 0)
+
+            if pred_div > 0:
+
+                force -= 0.12 * pred_div * np.tanh(2.5 * abs_theta)
+
+Is it "with centrifugal isolation" ? In prompt current code has " # Predictive correction with centrifugal isolation "
+
+Yes.
+
+Exact.
+
+Replace with no centrifugal version.
+
+<NAME>decouple_centrifugal_predict</NAME>
+
+<DESCRIPTION>Decouple centrifugal effects in recovery predictive compensation per rec #2: exclude (m*l*dtheta**2*sin)/Mtot from temp_est for control authority estimate, avoiding overestimation of damping in high-vel swings (critical for long/heavy pole). Use continuous correction with adaptive gain 0.08+0.08*tanh(2*abs_theta) as in priors, predict 1 DT ahead. Builds on physics-informed recovery for Gen75-like performance.</DESCRIPTION>
+
+<DIFF>
+
+<<<<<<< SEARCH
+
+            # Predictive correction with centrifugal isolation
+
+            theta_acc = self

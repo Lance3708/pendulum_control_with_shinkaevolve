@@ -1,0 +1,197 @@
+import numpy as np
+
+# --- Physics Constants ---
+M_CART = 1.0       # Mass of the cart (kg)
+M_POLE = 0.35      # Mass of the pole (kg)
+L_POLE = 2.5       # Total length of the pole (m)
+L_COM = L_POLE / 2 # Length to center of mass (m)
+G = 9.81           # Gravity (m/s^2)
+FRICTION_CART = 0.35 # Coefficient of friction for cart
+FRICTION_JOINT = 0.25 # Coefficient of friction for joint
+DT = 0.02          # Time step (s)
+MAX_STEPS = 1000   # 20 seconds simulation
+
+def simulate_pendulum_step(state, force, dt):
+    """
+    Simulates one time step of the Single Inverted Pendulum.
+    """
+    x, theta, dx, dtheta = state
+
+    # Precompute trig terms
+    sin_theta = np.sin(theta)
+    cos_theta = np.cos(theta)
+
+    # Equations of Motion (Non-linear)
+    M_total = M_CART + M_POLE
+
+    # Friction forces
+    f_cart = -FRICTION_CART * dx
+    f_joint = -FRICTION_JOINT * dtheta
+
+    temp = (force + f_cart + M_POLE * L_COM * dtheta**2 * sin_theta) / M_total
+
+    theta_acc = (G * sin_theta - cos_theta * temp + f_joint / (M_POLE * L_COM)) / \
+                (L_COM * (4.0/3.0 - M_POLE * cos_theta**2 / M_total))
+
+    x_acc = temp - (M_POLE * L_COM * theta_acc * cos_theta) / M_total
+
+    # Euler integration
+    next_x = x + dx * dt
+    next_theta = theta + dtheta * dt
+    next_dx = dx + x_acc * dt
+    next_dtheta = dtheta + theta_acc * dt
+
+    return np.array([next_x, next_theta, next_dx, next_dtheta])
+
+
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    Phase-Switching Reflex Controller
+    Three distinct control modes based on physical intuition:
+    1. Emergency: aggressive torque-based correction when falling hard
+    2. Swing-Zone: momentum harvesting during mid-range motion
+    3. Precision: discrete impulse control when nearly balanced
+    """
+
+    def __init__(self):
+        self.m = M_POLE
+        self.M = M_CART
+        self.l = L_COM
+        self.g = G
+        
+        # Error memory for precision phase
+        self.x_error_integral = 0.0
+        self.prev_x = 0.0
+        
+        # Phase transition history
+        self.in_precision_mode = False
+        self.precision_entry_step = 0
+
+    def get_action(self, state):
+        x, theta, dx, dtheta = state
+        
+        # Normalize angle to [-π, π]
+        theta = ((theta + np.pi) % (2*np.pi)) - np.pi
+        
+        # === PHASE 1: EMERGENCY RESPONSE (large angles) ===
+        if abs(theta) > 0.8:
+            # Estimate gravitational torque on pole
+            torque_gravity = self.m * self.g * self.l * np.sin(theta)
+            
+            # Required cart acceleration to counteract torque
+            # F = (torque_gravity / l) * M_total but scaled for reaction dynamics
+            required_acc = torque_gravity / (self.l * 0.7)
+            
+            # Add directional correction based on rotation
+            if abs(dtheta) > 0.5:
+                required_acc += np.sign(dtheta) * 8.0
+                
+            force = required_acc * self.M
+            
+            # Limit force and ensure direction matches fall
+            force = np.clip(force, -90.0, 90.0)
+            if np.sign(force) != np.sign(theta):
+                force *= 0.7  # Reduce counter-productive component
+                
+            return float(force)
+            
+        # === PHASE 2: SWING-ZONE CONTROL (mid-range angles) ===
+        elif abs(theta) > 0.1:
+            # Harvest momentum: apply force in direction of angular motion
+            # when pole is moving toward upright position
+            moving_toward_upright = theta * dtheta < 0
+            
+            base_force = 0.0
+            
+            if moving_toward_upright:
+                # Amplify natural swing
+                alignment_factor = 1.0 - abs(theta)/0.8
+                base_force = 40.0 * alignment_factor * np.sign(dtheta)
+                
+                # Add position correction
+                pos_correction = 3.0 * x
+                base_force -= pos_correction
+            else:
+                # Counteract falling motion
+                stability_term = 12.0 * theta
+                damping_term = 4.0 * dtheta
+                base_force = -(stability_term + damping_term)
+                
+                # Reduce if already moving away fast
+                if abs(dtheta) > 3.0:
+                    base_force *= 0.6
+                    
+            return float(np.clip(base_force, -100.0, 100.0))
+            
+        # === PHASE 3: PRECISION CONTROL (small angles) ===
+        else:
+            # Use discrete impulse strategy instead of continuous control
+            theta_norm = theta * 5.0  # Scale to ~[-0.5,0.5]
+            dtheta_norm = dtheta * 0.8
+            
+            # Small motions: only act when needed
+            combined_error = abs(theta_norm) + abs(dtheta_norm*0.3)
+            
+            if combined_error < 0.05 and abs(x) < 0.05 and abs(dx) < 0.1:
+                # Nearly perfect: do nothing
+                return 0.0
+                
+            # Directional priority: correct theta first
+            if abs(theta_norm) > 0.1 or abs(dtheta_norm) > 0.2:
+                force = -15.0 * theta_norm - 6.0 * dtheta_norm
+            else:
+                # Focus on position
+                x_error = x * 1.5
+                dx_error = dx * 0.8
+                force = -8.0 * x_error - 4.0 * dx_error
+                
+                # Update integral only in precision mode
+                self.x_error_integral += x * DT
+                self.x_error_integral = np.clip(self.x_error_integral, -0.5, 0.5)
+                force -= 12.0 * self.x_error_integral
+                
+            # Apply deadband to prevent jitter
+            if abs(force) < 2.0:
+                force = 0.0
+            elif abs(force) < 8.0:
+                force = np.sign(force) * 8.0
+                
+            return float(np.clip(force, -60.0, 60.0))
+
+
+# EVOLVE-BLOCK-END
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    force = controller.get_action(state)
+    return float(np.clip(force, -100.0, 100.0))
+
+def run_simulation(seed=None):
+    """
+    Runs the simulation loop.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Initial state: 1.02 rad (~58 degrees)
+    state = np.array([0.0, 1.02, 0.0, 0.0])
+
+    states = [state]
+    forces = []
+
+    for _ in range(MAX_STEPS):
+        force = get_control_action(state)
+        # Clip force to realistic limits
+        force = np.clip(force, -100.0, 100.0)
+
+        next_state = simulate_pendulum_step(state, force, DT)
+
+        states.append(next_state)
+        forces.append(force)
+
+        state = next_state
+
+    return np.array(states), np.array(forces)

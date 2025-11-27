@@ -1,0 +1,126 @@
+**Analysis:**
+The current controller performs well (4005.55 score) but has room for improvement in stabilization time (310 steps) and position accuracy (stable_x_error: 0.10). The key insight is that the system exhibits different physical behaviors in different phases, requiring distinct control strategies rather than smooth blending.
+
+**Proposal: Implement Phase-Based Control with Sharp Transitions**
+
+<NAME>
+phase_based_integral_reset
+</NAME>
+
+<DESCRIPTION>
+Add phase detection and reset integral term when transitioning from recovery to balancing phase. This prevents integral windup from recovery maneuvers from affecting precise balancing control. The system now treats recovery and balancing as distinct operational modes.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Adaptive integral control with state-dependent gain
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive integral gain: higher near equilibrium, lower during transients
+        K_i_adaptive = 0.85 * np.exp(-2.0 * (abs(theta) + 0.5 * abs(dtheta)))
+        K_i_adaptive = np.clip(K_i_adaptive, 0.2, 0.85)
+
+        if integral_gate > 0.1:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        force = force + integral_force
+=======
+        # Phase-based integral control with sharp transitions
+        # Define operational phases
+        in_balancing_phase = (abs(theta) < 0.15 and abs(dtheta) < 0.5)
+        in_recovery_phase = (abs(theta) < 0.6 and not in_balancing_phase)
+        in_emergency_phase = (abs(theta) >= 0.6)
+
+        # Reset integral when transitioning from recovery to balancing
+        if in_balancing_phase and not self.was_in_balancing:
+            self.integral_x = 0.0  # Fresh start for precise positioning
+        self.was_in_balancing = in_balancing_phase
+
+        # Phase-specific integral rules
+        if in_balancing_phase:
+            # Aggressive integral for precise centering
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -0.8, 0.8)
+            integral_force = 1.2 * self.integral_x
+        elif in_recovery_phase:
+            # Conservative integral to prevent windup
+            self.integral_x += 0.3 * x * DT
+            self.integral_x = np.clip(self.integral_x, -1.0, 1.0)
+            integral_force = 0.6 * self.integral_x
+        else:  # Emergency phase
+            # No integral - focus on angle recovery
+            self.integral_x *= 0.8  # Rapid decay
+            integral_force = 0.0
+
+        force = force + integral_force
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+emergency_phase_boost
+</NAME>
+
+<DESCRIPTION>
+Add an emergency phase detection and apply aggressive, short-duration boosts when the pole is falling rapidly. This addresses the fundamental limitation of smooth controllers being too slow to react to imminent failure conditions.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Swing-up assist for large angles
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+=======
+        # Emergency phase detection and response
+        falling_rapidly = (abs(theta) > 0.7 and theta * dtheta > 0.3)
+        critical_fall = (abs(theta) > 0.9 and theta * dtheta > 0.1)
+
+        if falling_rapidly or critical_fall:
+            # Emergency boost: strong, immediate counter-action
+            emergency_boost = -25.0 * np.sign(theta) * min(1.0, abs(theta))
+            # Add velocity-dependent component for momentum cancellation
+            momentum_cancel = -8.0 * dtheta * np.sign(theta)
+            force = force + emergency_boost + momentum_cancel
+
+        # Swing-up assist for large angles (non-emergency)
+        elif abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            falling_factor = 1.0 + np.tanh(2.0 * theta * dtheta / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_phase_tracking_variable
+</NAME>
+
+<DESCRIPTION>
+Initialize the phase tracking variable needed for the integral reset logic. This must be added to the controller's __init__ method.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+=======
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.was_in_balancing = False  # Phase tracking for integral reset
+
+        # Natural frequency for normalized calculations
+        self.omega_n = np.sqrt(G / L_COM)
+>>>>>>> REPLACE
+</DIFF>

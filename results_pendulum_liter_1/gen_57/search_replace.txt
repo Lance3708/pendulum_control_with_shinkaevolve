@@ -1,0 +1,82 @@
+<NAME>refine_q_weights</NAME>
+<DESCRIPTION>Refine Q-matrix weights to [4.5, 44.0, 0.6, 3.25] based on top prior performer (4920 score, 192 steps) with targeted +1.5% increase to Q[3] for enhanced angular velocity damping. This addresses minor early oscillations in swing-down phase while maintaining fast convergence and high energy efficiency, directly following empirical correlation from prior generations.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: more aggressive angular control for faster stabilization
+        Q = np.diag([5.0, 48.0, 0.6, 3.8])  # Higher angle and angular velocity penalties
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: refined for minimal oscillations and fast stabilization
+        Q = np.diag([4.5, 44.0, 0.6, 3.25])  # Top-performer base + slight Q[3] increase for damping
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>proven_gain_scheduling</NAME>
+<DESCRIPTION>Revert to exact gain scheduling from top-scoring prior (4920 score): simple tanh with thresholds at |theta|>0.6 and |dtheta|>1.0. Eliminates experimental early-activation and synergy terms that caused overshoot/delays in current (228 steps), restoring proven balance for faster stabilization without sacrificing upright precision.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Smooth gain scheduling using tanh for differentiable transitions
+        # Position-based gain: earlier activation and stronger boost for large angles
+        pos_gain = 1.0 + 0.5 * (np.tanh(5.0 * (abs(theta) - 0.35)) + 1.0) * 0.5
+
+        # Velocity-based gain: earlier activation for high angular velocity
+        vel_gain = 1.0 + 0.35 * (np.tanh(4.0 * (abs(dtheta) - 0.5)) + 1.0) * 0.5
+
+        # Synergistic boost: extra authority when pole is moving away from equilibrium
+        # (theta and dtheta have same sign means pole is falling further)
+        falling_away = theta * dtheta > 0
+        synergy_boost = 1.0 + 0.15 * falling_away * (np.tanh(2.0 * (abs(theta) - 0.3)) + 1.0) * 0.5
+
+        # Combined adaptive gain (multiplicative)
+        adaptive_gain = pos_gain * vel_gain * synergy_boost
+
+        force = base_force * adaptive_gain
+=======
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>discrete_time_lqr</NAME>
+<DESCRIPTION>Implement discrete-time LQR via ZOH discretization (scipy.signal.cont2discrete) and solve_discrete_are with Qd=Q*DT, Rd=R*DT to eliminate continuous-discrete mismatch inherent in explicit Euler simulator (DT=0.02s). This aligns controller predictions with actual sampled dynamics, improving transient accuracy, reducing stabilization time below 192 steps, and boosting precision rewards.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def solve_lqr(self, A, B, Q, R):
+        """Solve discrete-time LQR to match simulator DT=0.02"""
+        from scipy.signal import cont2discrete
+        from scipy.linalg import solve_discrete_are
+        Ad, Bd, _, _ = cont2discrete((A, B, np.eye(A.shape[0]), np.zeros((A.shape[0], B.shape[1]))), DT, method='zoh')
+        Qd = Q * DT
+        Rd = R * DT
+        P = solve_discrete_are(Ad, Bd, Qd, Rd)
+        K = np.linalg.inv(Rd) @ Bd.T @ P
+        return K
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>robust_angle_normalization</NAME>
+<DESCRIPTION>Enhance angle normalization with tiny positive offset (1e-4 rad) before modulo to introduce numerical hysteresis, preventing unstable gain toggles from floating-point noise near ±π where rapid theta wrapping could flip signs erroneously—critical for consistent tanh scheduling under high dtheta transients.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+=======
+        # Normalize angle to [-pi, pi] with numerical hysteresis
+        theta = ((theta + np.pi + 1e-4) % (2 * np.pi)) - np.pi
+>>>>>>> REPLACE
+</DIFF>

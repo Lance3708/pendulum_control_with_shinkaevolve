@@ -1,0 +1,81 @@
+Looking at the performance metrics, all top programs are plateaued at ~4920 points with stabilization_time=192 steps. The key bottleneck is the time bonus - reducing stabilization time from 192 to even 190 would yield significant gains (each step saved is worth ~13.8 points in time bonus).
+
+Analyzing the physics: at the initial 0.9 rad angle, the pole has significant gravitational torque. The current swing-up assist only activates above 0.8 rad, which may be too late. Additionally, the assist uses a fixed gain of 8.0 which doesn't account for the specific dynamics of this heavy, long pole.
+
+**Key insight:** The current controller treats the early swing-up phase too conservatively. For this specific system with high inertia (heavy pole, long length), we need:
+1. Earlier and more aggressive intervention when the pole is falling fast
+2. A predictive component that anticipates where the pole will be in the next timestep
+
+I'll implement a **predictive feedforward term** that uses the current angular acceleration estimate to anticipate the pole's trajectory, allowing earlier corrective action.
+
+<NAME>
+predictive_feedforward_swing
+</NAME>
+
+<DESCRIPTION>
+Adding a predictive feedforward component to the swing-up assist that:
+1. Estimates angular acceleration from the current state using simplified dynamics
+2. Predicts where theta will be in the next timestep
+3. Activates swing-up assist earlier based on predicted angle, not just current angle
+4. Uses physics-based scaling that accounts for the pole's natural frequency and inertia
+
+This allows the controller to "see ahead" and apply corrective force before the pole reaches critical angles, potentially shaving 2-4 steps off stabilization time.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Natural frequency of pendulum for normalization
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Soft integral state for eliminating cart position steady-state error
+        self.integral_x = 0.0
+        self.K_i = 0.05
+=======
+        # Natural frequency of pendulum for normalization
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Precompute inertia-scaled assist gain (accounts for heavy pole)
+        self.swing_gain = 10.0 * (1.0 + m / M)  # ~12.35 for this system
+
+        # Soft integral state for eliminating cart position steady-state error
+        self.integral_x = 0.0
+        self.K_i = 0.05
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Add physics-informed swing-up assist for large angles (>0.8 rad)
+        if abs(theta) > 0.8:
+            # Normalized divergence metric: angular momentum scaled by natural frequency
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            # Smooth activation based on angle deviation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Continuous falling severity: tanh for differentiable divergence scaling
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+            # Additive assist force
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force += u_swing
+=======
+        # Predictive swing-up assist: estimate where pole will be next timestep
+        # Simplified angular acceleration estimate: theta_acc ≈ (g/l) * sin(theta)
+        theta_acc_est = (G / L_COM) * np.sin(theta)
+        theta_predicted = theta + dtheta * DT + 0.5 * theta_acc_est * DT**2
+
+        # Use predicted angle for earlier activation (threshold 0.7 instead of 0.8)
+        effective_angle = max(abs(theta), abs(theta_predicted))
+
+        if effective_angle > 0.7:
+            # Normalized divergence metric: angular momentum scaled by natural frequency
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            # Smooth activation based on effective angle deviation
+            swing_activation = np.tanh(5.0 * (effective_angle - 0.7))
+            # Continuous falling severity with signed momentum for directional assist
+            falling_severity = 1.0 + np.tanh(2.5 * abs(norm_momentum))
+            # Additional boost when pole is actively falling (theta*dtheta > 0)
+            falling_boost = 1.0 + 0.3 * np.tanh(4.0 * theta * dtheta)
+            # Additive assist force with inertia-scaled gain
+            u_swing = self.swing_gain * swing_activation * np.sign(theta) * falling_severity * falling_boost
+            force += u_swing
+>>>>>>> REPLACE
+</DIFF>

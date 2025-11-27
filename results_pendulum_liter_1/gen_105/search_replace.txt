@@ -1,0 +1,61 @@
+<NAME>
+integral_action_refinement
+</NAME>
+
+<DESCRIPTION>
+The previous implementation introduced integral action but suffered from two key issues:
+1. The integral gain was too conservative (ki_x = 0.15), limiting its effectiveness in eliminating steady-state error
+2. The anti-windup bounds (-0.5, 0.5) were too restrictive, preventing full correction
+
+By increasing ki_x to 0.25 and widening anti-windup bounds to (-1.0, 1.0), the integral term can provide stronger steady-state correction without causing instability. This directly addresses the observed stable_x_error of 0.04 and final_x_error of 0.02 in the metrics, aiming to drive both to near-zero levels while maintaining system stability.
+
+The integral gate activation (tanh-based) remains unchanged since it effectively prevents windup during transients.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral state for cart position (soft steady-state correction)
+        self.x_integral = 0.0
+        self.ki_x = 0.15  # Mild integral gain
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+=======
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+        # Integral state for cart position (soft steady-state correction)
+        self.x_integral = 0.0
+        self.ki_x = 0.25  # Increased integral gain for stronger steady-state correction
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft integral action on cart position - only near equilibrium
+        # Gated by tanh to prevent windup during transients
+        integral_gate = 0.5 * (1.0 + np.tanh(12.0 * (0.1 - abs(theta_norm))))
+        self.x_integral += x * DT * integral_gate
+        # Anti-windup: limit integral accumulation
+        self.x_integral = np.clip(self.x_integral, -0.5, 0.5)
+        force = force - self.ki_x * self.x_integral * integral_gate
+
+        return float(force[0])
+=======
+        # Soft integral action on cart position - only near equilibrium
+        # Gated by tanh to prevent windup during transients
+        integral_gate = 0.5 * (1.0 + np.tanh(12.0 * (0.1 - abs(theta_norm))))
+        self.x_integral += x * DT * integral_gate
+        # Anti-windup: limit integral accumulation (wider bounds for stronger correction)
+        self.x_integral = np.clip(self.x_integral, -1.0, 1.0)
+        force = force - self.ki_x * self.x_integral * integral_gate
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,98 @@
+<NAME>
+add_swingup_trigger</NAME>
+
+<DESCRIPTION>
+Add a conditional pre-stabilization swing-up mode for extreme angles >0.85 rad using u=80*np.sign(theta*dtheta) to provide aggressive early correction and energy injection when the pole is marginally unstable (as with initial 0.9 rad). This activates only during large deviations, speeding initial recovery to boost stabilization_time below 198 steps and increase time_bonus, while handing off seamlessly to LQR once below threshold for continued efficiency. Matches Gen 33 robustness extension for domain-of-attraction enlargement without complex logic.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        if abs(theta) > 0.85:
+            swing_force = 80.0 * np.sign(theta * dtheta)
+            return float(np.clip(swing_force, -100.0, 100.0))
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+smooth_gain_scheduling</NAME>
+
+<DESCRIPTION>
+Replace max(0.0, error - threshold) with direct (error - threshold) in tanh arguments for fully differentiable gain scheduling without hard-coded plateaus. This provides subtle gain reduction (&lt;1.0) for very small errors, reducing overshoot/chattering near equilibrium, improving final precision (stable_x_error, base_score) while maintaining aggressive response for larger deviations per recommendation #2.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+=======
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * (abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * (abs(dtheta) - 1.0))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+tune_lqr_weights</NAME>
+
+<DESCRIPTION>
+Optimize Q matrix to [8.0,42.0,0.8,4.0] (higher x/dx for superior cart centering reducing stable_x_error=0.03; higher theta/dtheta for accelerated damping/convergence) and reduce R=0.8 for moderately more aggressive gains. Builds on current strong baseline (198 steps, 4878 score) to shave stabilization_time further (&lt;180 steps), boost base_score/time_bonus toward 5500+ total while energy remains near-max.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: increased dtheta penalty for faster oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.0])  # Increased from 2.5 to 3.0 for better damping
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: higher x/dtheta for centering/damping, lower R for aggression
+        Q = np.diag([8.0, 42.0, 0.8, 4.0])
+        R = np.array([[0.8]])
+>>>>>>> REPLACE
+</DIFF>

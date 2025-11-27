@@ -1,0 +1,29 @@
+
+
+<optimization_improvement>
+Improving the LQR weights to match the best performing configuration and adding numerical safety to angle normalization for better stability and performance.
+</optimization_improvement>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: refined angular velocity damping for better transient response
+        # Q[1]=38.0 for angle correction, Q[3]=3.25 for optimal oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.25])
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: refined angular velocity damping for better transient response
+        # Q[1]=44.0 for improved angle correction, Q[3]=3.2 for optimal oscillation damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+=======
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+>>>>>>> REPLACE
+</DIFF>

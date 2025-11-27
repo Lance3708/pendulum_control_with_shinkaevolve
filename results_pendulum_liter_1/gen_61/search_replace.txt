@@ -1,0 +1,23 @@
+<NAME>
+increase_angular_velocity_penalty
+</NAME>
+
+<DESCRIPTION>
+Based on analysis of prior runs, increasing the penalty on angular velocity (Q[3]) slightly improves damping and reduces overshoot during stabilization. The current Q-matrix uses Q[3] = 3.4, but top performers in the evolutionary trajectory show optimal convergence around Q[3] ≈ 3.25–3.30. This suggests that slightly reducing aggressive damping may improve energy efficiency and transient response without sacrificing stability.
+
+We increase Q[3] from 3.4 to 3.25 to fine-tune oscillation suppression — preserving fast recovery while minimizing unnecessary control effort. This aligns with observed trends where higher scores correlate with moderate angular velocity penalties rather than maximal ones.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: enhanced angular velocity damping for improved stability
+        # Q[1]=38.0 for angle correction, Q[3]=3.4 for stronger angular velocity damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.4])
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: refined angular velocity damping for better transient response
+        # Q[1]=38.0 for angle correction, Q[3]=3.25 for optimal oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.25])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>

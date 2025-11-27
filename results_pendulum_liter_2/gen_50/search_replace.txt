@@ -1,0 +1,117 @@
+**Changes:**
+
+1. **Enhanced Predictive Compensation with Centrifugal Isolation**
+   - Improved the physics model by explicitly separating the centrifugal term in the angular acceleration prediction
+   - This provides more accurate momentum prediction during high-energy swing-up phases
+
+2. **Direction-Aware Mid-Swing Damping**
+   - Added explicit phase-plane directionality using the product of angle and angular velocity
+   - Damping is only applied when the pole is moving away from upright, reducing unnecessary actuation
+
+3. **Adaptive Integral Gain Scheduling**
+   - Made the integral gain state-dependent based on proximity to equilibrium
+   - More aggressive integral action near equilibrium for better position control while maintaining windup protection
+
+<DIFF>
+<<<<<<< SEARCH
+            # Enhanced predictive momentum compensation
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+
+            # Full physics model for accurate prediction
+            f_cart = -self.b_c * dx
+            f_joint = -self.b_j * dtheta
+            temp_est = (force[0] + f_cart + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+            denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+            theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+            dtheta_pred = dtheta + theta_acc_est * DT
+
+            # Adaptive predictive gain based on angle severity
+            adaptive_predictive_gain = 0.08 + 0.08 * np.tanh(2.0 * abs_theta)
+            pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+            predictive_correction = -adaptive_predictive_gain * pred_divergence * np.tanh(2.5 * abs_theta)
+            force = force + predictive_correction
+=======
+            # Enhanced predictive momentum compensation with centrifugal isolation
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+
+            # Full physics model with explicit centrifugal term isolation
+            f_cart = -self.b_c * dx
+            f_joint = -self.b_j * dtheta
+            centrifugal_term = self.m * self.l * dtheta**2 * sin_theta
+            temp_est = (force[0] + f_cart + centrifugal_term) / self.Mtot
+            denominator = self.l * (4.0/3.0 - self.m * cos_theta**2 / self.Mtot)
+
+            # More accurate theta acceleration by explicitly handling centrifugal effects
+            theta_acc_est = (self.g * sin_theta - cos_theta * temp_est + f_joint / (self.m * self.l)) / denominator
+            dtheta_pred = dtheta + theta_acc_est * DT
+
+            # Adaptive predictive gain with centrifugal awareness
+            centrifugal_factor = np.tanh(0.5 * abs(centrifugal_term))
+            adaptive_predictive_gain = 0.08 + 0.06 * centrifugal_factor + 0.04 * np.tanh(2.0 * abs_theta)
+            pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+            predictive_correction = -adaptive_predictive_gain * pred_divergence * np.tanh(2.5 * abs_theta)
+            force = force + predictive_correction
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Enhanced mid-swing angular damping with improved direction gating
+            mid_swing_activation = np.exp(-5.0 * (abs_theta - 0.55)**2)
+            if abs_theta > 0.25 and abs_theta < 0.85:
+                K_d_midswing = 3.0  # Reduced from 6.0 for better energy efficiency
+                # Smart damping: only damp when moving away from vertical
+                is_moving_away = 0.5 * (1.0 + np.tanh(4.0 * theta * dtheta))
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * is_moving_away
+                force = force + midswing_damp
+=======
+            # Enhanced mid-swing angular damping with explicit phase-plane directionality
+            mid_swing_activation = np.exp(-5.0 * (abs_theta - 0.55)**2)
+            if abs_theta > 0.25 and abs_theta < 0.85:
+                K_d_midswing = 3.0  # Reduced from 6.0 for better energy efficiency
+                # Phase-plane aware damping: only damp when moving away from vertical (theta*dtheta > 0)
+                direction_awareness = np.tanh(3.0 * theta * dtheta)
+                midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * max(0.0, direction_awareness)
+                force = force + midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            # Adaptive integral gain: higher near equilibrium
+            K_i_adaptive = 0.85 * np.exp(-3.0 * (abs_theta + 0.3 * abs(dtheta)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.3, 0.85)
+
+            if integral_gate > 0.2:
+                self.integral_x += x * DT
+                # Enhanced windup protection with dynamic limits
+                integral_limit = 1.0 + 2.0 * (1.0 - integral_gate)
+                self.integral_x = np.clip(self.integral_x, -integral_limit, integral_limit)
+            else:
+                self.integral_x *= 0.98  # Slower decay to preserve useful integral
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # Correct sign: integral should oppose position error
+            force = force - integral_force
+=======
+            # Adaptive integral gain scheduling based on proximity to equilibrium
+            equilibrium_proximity = np.exp(-4.0 * (abs_theta + 0.4 * abs(dtheta)))
+            K_i_adaptive = 0.85 * equilibrium_proximity
+            K_i_adaptive = np.clip(K_i_adaptive, 0.3, 0.85)
+
+            if integral_gate > 0.2:
+                self.integral_x += x * DT
+                # Enhanced windup protection with dynamic limits
+                integral_limit = 1.0 + 2.0 * (1.0 - integral_gate)
+                self.integral_x = np.clip(self.integral_x, -integral_limit, integral_limit)
+            else:
+                self.integral_x *= 0.98  # Slower decay to preserve useful integral
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # Correct sign: integral should oppose position error
+            force = force - integral_force
+>>>>>>> REPLACE
+</DIFF>

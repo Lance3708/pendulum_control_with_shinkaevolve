@@ -1,0 +1,104 @@
+<NAME>
+energy_scaled_swing_up_assist
+</NAME>
+
+<DESCRIPTION>
+Looking at the performance metrics, the current best score is around 4926 with stabilization time of 191 steps. The key insight is that the swing-up assist could be more efficient by considering the pendulum's mechanical energy deficit rather than just using a fixed scaling factor.
+
+The idea is to compute the current mechanical energy of the pendulum and compare it to the energy needed to reach the upright position. When the pendulum has low energy (far from upright), we need stronger assistance. When it already has sufficient energy, we should reduce the assist to avoid overshooting. This physics-based approach should:
+
+1. Deliver impulse proportionally to the energy deficit
+2. Avoid over-correction when the pendulum is already gaining momentum toward upright
+3. Potentially reduce stabilization time by 1-2 steps while maintaining energy efficiency
+
+Additionally, I'll refine the integral control with a leaky integration factor to prevent windup during the recovery phase, which the best-performing variant (4926.94) already uses.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.05
+
+        # Swing-up assist parameters
+        self.omega_n = np.sqrt(G / L_COM)
+=======
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85  # Increased for faster cart centering (proven in best performer)
+
+        # Swing-up assist parameters
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Energy reference for swing-up scaling
+        self.E_ref = M_POLE * G * L_COM  # Potential energy at upright position
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Add swing-up assist for large angles (>0.8 rad)
+        if abs(theta) > 0.8:
+            # Smooth activation based on angle deviation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Normalized falling severity using angular momentum
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+            # Additive assist force
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force += u_swing
+=======
+        # Energy-scaled swing-up assist for large angles (>0.8 rad)
+        if abs(theta) > 0.8:
+            # Smooth activation based on angle deviation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+
+            # Compute current mechanical energy of pendulum
+            # Kinetic energy: 0.5 * I * dtheta^2 where I = m * l^2 (point mass approx)
+            # Potential energy: m * g * l * (1 - cos(theta)) referenced to upright
+            E_kinetic = 0.5 * M_POLE * (dtheta * L_COM)**2
+            E_potential = M_POLE * G * L_COM * (1.0 - np.cos(theta))
+            E_current = E_kinetic + E_potential
+
+            # Energy deficit factor: scale assist by how much energy is missing
+            # When E_current < E_ref, deficit > 0 -> stronger assist
+            energy_deficit = max(0.0, 1.0 - E_current / self.E_ref)
+            energy_scale = 1.0 + 0.5 * energy_deficit
+
+            # Normalized falling severity using angular momentum
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            falling_severity = 1.0 + np.tanh(3.0 * norm_momentum)
+
+            # Additive assist force with energy scaling
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity * energy_scale
+            force += u_swing
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (|theta| < 0.1 rad)
+        gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        self.integral_x += x * DT * gate
+        self.integral_x = np.clip(self.integral_x, -0.5, 0.5)
+        force -= self.K_i * self.integral_x * gate
+=======
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (|theta| < 0.1 rad)
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive (prevents windup)
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        # Small additional cart velocity damping when near equilibrium
+        if abs(theta) < 0.15:
+            cart_damp = -0.08 * dx * (0.15 - abs(theta)) / 0.15
+            force = force + cart_damp
+>>>>>>> REPLACE
+</DIFF>

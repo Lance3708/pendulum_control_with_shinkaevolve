@@ -1,0 +1,36 @@
+<NAME>update_to_best_lqr_weights</NAME>
+<DESCRIPTION>
+Update the LQR Q-matrix to the proven optimal diagonal weights [4.5, 44.0, 0.6, 3.2] from the highest-scoring prior program (4920.15). This configuration provides superior angular control and damping for the heavy/long pole + high friction, boosting base_score while keeping energy/time optimal.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: aggressive angular correction with strong damping
+        # Q[1]=38.0 for fast angle correction, Q[3]=3.0 for oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.0])
+        R = np.array([[1.0]])
+=======
+        # Proven optimal LQR weights from best performer (4920.15 score)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_arctan2_and_smooth_swingup_assist</NAME>
+<DESCRIPTION>
+Replace modulo angle normalization with robust arctan2 (rec1) for consistent abs(theta) during transients. Add smooth (tanh-activated) swing-up assist with tanh-based falling_severity (rec3 preview), providing physics-exploiting impulse to counter initial 0.9 rad fall of high-inertia pole. No hard thresholds for differentiability. Targets faster stabilization (&lt;192 steps) by aggressive early correction.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 +

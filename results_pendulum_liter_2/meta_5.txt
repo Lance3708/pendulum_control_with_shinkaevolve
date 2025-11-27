@@ -1,0 +1,73 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Adaptive Cross-Coupled LQR Controller**  
+- **Implementation**: Uses an adaptive LQR with state-dependent cross-coupling in the Q-matrix, mid-swing angular damping, predictive momentum compensation, swing-up assist for large angles, and dual-gated integral control to stabilize a highly unstable inverted pendulum (long, heavy pole with high friction).  
+- **Performance**: Achieved a combined score of 3931.61 with full success bonus, low energy usage (avg 0.03 per step), and stable final errors near zero.  
+- **Feedback**: The controller effectively balances aggressive stabilization and energy efficiency, with innovations like predictive correction and mid-swing damping crucial for handling the challenging dynamics; dual-gated integral action prevents windup while aiding precision near equilibrium.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Phase-Based Reflex Controller for Inverted Pendulum**  
+- **Implementation**: Uses a rule-based, phase-dependent control strategy with three modes (Emergency, Recovery, Precision) that adjust gains based on pole angle, angular velocity, and cart position; includes integral action for position drift correction and anti-overshoot logic.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pendulum within limits (final theta error: 0.96 rad, final x error: 1889 m).  
+- **Feedback**: Despite intuitive physics-based design, the controller fails under extreme parameters (heavy/long pole, high friction); large initial angle (1.02 rad) and aggressive emergency response likely cause instability and cart runaway, indicating insufficient robustness and tuning for the given system dynamics.
+**Program Identifier:** Generation 1 - Patch Name phase_based_reflex_controller - Correct Program: False
+
+**Program Name: Phase-Based Inverted Pendulum Controller**  
+- **Implementation**: Uses a three-phase control strategy (emergency, guidance, precision) with angle/velocity thresholds and distinct gains; includes integral control in precision mode and predictive compensation in guidance mode.  
+- **Performance**: Scored 0.00 due to failure to stabilize the pendulum (final theta error: 2.71 rad), despite moderate energy efficiency (avg_energy_per_step: 0.46).  
+- **Feedback**: The controller fails to recover from the large initial angle (1.02 rad) under challenging dynamics (heavy, long pole); emergency mode overreacts or misdirects force, preventing stabilization within 1000 steps.
+**Program Identifier:** Generation 2 - Patch Name emergency_phase_controller - Correct Program: False
+
+**Program Name: Phase-Based Inverted Pendulum Controller**  
+- **Implementation**: Uses a rule-based controller with three distinct phases (Emergency Catch, Damping & Centering, Precision Hold) that switch based on an instability metric combining pole angle and angular velocity; each phase applies tuned PD control with nonlinear kickers in emergency mode.  
+- **Performance**: Achieved a combined score of 0.00 due to failure to stabilize the pendulum within bounds, despite high energy usage (total_energy: 137.03) and full simulation duration (stabilization_time: 1000).  
+- **Feedback**: The controller failed to prevent large cart drift (final_x_error: 660.19) and significant pole angle error (final_theta_error: 0.31), indicating poor coordination between angle stabilization and position control—especially in later phases where position correction may destabilize the pole or is insufficiently coupled with dynamics.
+**Program Identifier:** Generation 3 - Patch Name three_phase_reflex_controller - Correct Program: False
+
+**Program Name: Three-Phase Inverted Pendulum Controller**  
+- **Implementation**: Uses a rule-based three-phase controller (Emergency, Guidance, Precision) with nonlinear gains and angle normalization; simulates a highly unstable pendulum (long, heavy pole; high friction).  
+- **Performance**: Scored 0.00 due to failure to stabilize the pole within limits (final theta error: 2.52 rad, position diverged to 4412 m).  
+- **Feedback**: Despite crisp phase logic and strong emergency response, the controller fails to recover from large initial angles under extreme system instability; guidance phase prediction may be inaccurate, and energy usage is high without achieving stability.
+**Program Identifier:** Generation 4 - Patch Name three_phase_controller - Correct Program: False
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+## Successful Algorithmic Patterns
+- **Adaptive cross-coupled LQR with state-dependent tuning** proved highly effective in the *Adaptive Cross-Coupled LQR Controller* (score: **3931.61**), where dynamic adjustment of the Q-matrix coupling between pole angle and angular velocity enabled precise coordination under extreme instability (long, heavy pole with high friction).
+- **Mid-swing angular damping and predictive momentum compensation** were critical innovations in the best-performing controller; these mechanisms suppressed overshoot during high-energy transitions and anticipated divergence before it occurred, directly contributing to low final errors (θ ≈ 0, x ≈ 0.01) and energy efficiency (avg_energy_per_step: **0.03**).
+- **Dual-gated integral control**, activated only when both angle and velocity are near equilibrium, prevented integrator windup while still correcting steady-state position drift—this fine-tuning was essential for achieving a stable_x_error of just **0.14** without destabilizing the system.
+
+## Ineffective Approaches
+- **Rule-based phase controllers** consistently failed across Generations 1–4 (*Phase-Based Reflex Controller*, *Emergency Phase Controller*, etc.), all scoring **0.00** due to inability to stabilize the pendulum within bounds; their rigid mode-switching logic overreacted to large initial angles (1.02 rad), causing cart runaway or insufficient recovery.
+- **Over-reliance on emergency-mode aggression** without dynamic feedback adaptation led to instability—e.g., *Three-Phase Inverted Pendulum Controller* (Gen 4) used strong nonlinear kickers but diverged to **x = 4412 m**, showing that brute-force correction without model-aware coordination is ineffective under high inertia and friction.
+- **Decoupled angle and position control** in phase-based designs caused poor coordination: *Three Phase Reflex Controller* (Gen 3) stabilized θ moderately (final error: 0.31 rad) but allowed massive cart drift (**x = 660 m**), revealing that position correction must be tightly integrated with angular dynamics.
+
+## Implementation Insights
+- The **current best program embeds physics-aware approximations directly into control logic**, such as estimating angular acceleration from gravity and friction terms to enable *predictive compensation*—this lightweight prediction avoids full-state estimation yet significantly improves responsiveness.
+- **Nonlinear gain scheduling via smooth activation functions** (e.g., `tanh`, Gaussian envelopes) allows seamless transitions between behaviors (swing-up assist, mid-swing damping) without discontinuities that could excite instability—contrasting sharply with hard-threshold phase switches in failed controllers.
+- **Energy efficiency stems from minimal integral action and adaptive gain suppression**: the successful controller uses dual gating to deactivate integration outside equilibrium and scales base LQR gains only when necessary, resulting in **total_energy = 28.57** vs. >137 in failed high-energy attempts.
+- **Robust angle normalization** (`((theta + π) % (2π)) - π`) ensures consistent state representation across full rotations—a subtle but vital detail absent in some rule-based controllers that may misclassify angles near ±π.
+
+## Performance Analysis
+- Only **one program succeeded** (score: **3931.61**) out of five evaluated; all others scored **0.00**, highlighting the extreme difficulty of the test case (1.02 rad initial angle, long/heavy pole, high friction) and the fragility of non-adaptive strategies.
+- The successful controller achieved **near-zero final errors** (θ: 0.00, x: 0.01) and stabilized in **314 steps** (31% of max time), earning full success (**800**) and substantial time (**1363**) and energy (**2398**) bonuses—demonstrating that stability, speed, and efficiency are jointly achievable with model-informed adaptation.
+- Failed programs exhibited **catastrophic divergence**: final x-errors ranged from **1889 m to 4412 m**, and theta errors remained >0.3 rad, confirming they never entered a stabilizing regime—unlike the best program, which converged rapidly after initial swing-up.
+- **Energy usage strongly correlates with control philosophy**: adaptive LQR used **0.03 avg energy/step**, while rule-based controllers consumed **0.46–137 total energy** without stabilization, proving that intelligent, model-based actuation is far more efficient than reactive over-correction.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+1. **Enhance predictive compensation with second-order state extrapolation**: The current best program uses a simplified gravity-dominated estimate of angular acceleration for predictive correction. Extend this by incorporating cart acceleration effects into the prediction model (using dx and x terms from the full dynamics) to compute a more accurate dtheta_pred over a 2–3 step horizon, which could further reduce overshoot during swing-up transitions.
+
+2. **Introduce adaptive integral gain scheduling based on stability margin**: While dual-gated integral action prevents windup effectively, the fixed K_i = 0.85 may be suboptimal across varying energy regimes. Implement a stability-margin-dependent K_i that scales inversely with |θ| + |dθ| near equilibrium (e.g., K_i = 0.85 × exp(−α(|θ| + |dθ|))) to minimize corrective lag without risking instability during transient phases.
+
+3. **Refine mid-swing damping with velocity-phase-aware activation**: The Gaussian activation centered at 0.5 rad works well but doesn’t account for direction of motion. Modify the mid_swing_activation to include a sign-sensitive term (e.g., multiply by tanh(β·θ·dθ)) so damping is stronger when the pole is moving away from upright (θ·dθ > 0) and reduced when returning, improving energy efficiency during recovery.
+
+4. **Embed friction-adaptive LQR tuning via online parameter estimation**: The current A matrix uses nominal friction coefficients, but high joint/cart friction significantly alters effective dynamics. Add lightweight recursive least squares (RLS) or gradient-based updates to adjust b_c and b_j estimates online using observed state derivatives, then recompute Q-coupling or K gains every N steps to maintain optimality under real friction conditions.
+
+5. **Add cross-state energy-aware gain modulation using Lyapunov-inspired metrics**: Leverage the observed correlation between low energy usage and success by introducing a composite “energy-risk” metric (e.g., E_risk = 0.5·dx² + M_POLE·G·L_COM·(1−cosθ)) to modulate adaptive_gain. Scale gains down when E_risk exceeds a threshold to avoid aggressive corrections that waste energy, while preserving responsiveness near the separatrix where precise actuation is critical.

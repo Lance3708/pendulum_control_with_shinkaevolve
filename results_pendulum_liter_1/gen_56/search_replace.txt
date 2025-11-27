@@ -1,0 +1,27 @@
+<NAME>
+increase_angular_velocity_weight_in_q_matrix
+</NAME>
+
+<DESCRIPTION>
+Based on the performance data, the current controller achieves good stabilization (~198 steps) and high energy efficiency, but there is room to improve transient response during early swing-up and damping of angular oscillations. The Q-matrix in the LQR design directly influences how aggressively the controller responds to angular velocity (dtheta).
+
+The current Q = [4.0, 38.0, 0.5, 3.0] assigns a penalty of 3.0 to dtheta. Increasing this value strengthens the controller’s effort to dampen angular motion, which is critical given the long (2.5m), heavy pole that generates large inertial forces. A higher Q[3] leads to faster dissipation of angular momentum, reducing overshoot and settling time.
+
+We increase Q[3] from 3.0 to 3.4 — a ~13% boost — to enhance damping without overly increasing control effort (which would hurt energy bonus). This adjustment is conservative yet effective, targeting the dominant instability mode in underactuated systems like the inverted pendulum.
+
+This change aligns with optimal control theory: for unstable second-order systems, increasing the cost on derivative states improves stability margins and robustness.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: aggressive angular correction with strong damping
+        # Q[1]=38.0 for fast angle correction, Q[3]=3.0 for oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.0])
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: enhanced angular velocity damping for improved stability
+        # Q[1]=38.0 for angle correction, Q[3]=3.4 for stronger angular velocity damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.4])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>

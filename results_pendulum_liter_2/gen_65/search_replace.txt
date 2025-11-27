@@ -1,0 +1,89 @@
+I propose a three-part strategy to enhance the controller's performance, focusing on improving the final positioning accuracy to secure the full success bonus, while also refining the high-speed recovery dynamics based on empirically successful prior designs.
+
+1.  **Refine Predictive Compensation:** Analysis of the top-performing programs reveals a counter-intuitive negative sign in the predictive correction term. While my initial analysis suggests this would be destabilizing, the empirical data is overwhelming. This term likely provides critical phase lead, acting as a non-linear damping force when the pole swings back to center (`theta` and `dtheta_pred` have opposite signs) and potentially enabling a faster "catch" maneuver by briefly accelerating the fall. I will adopt this superior logic by flipping the sign of the predictive correction gain and tuning it to `-0.12`.
+
+2.  **Strengthen and Simplify Integral Control:** The current adaptive integral gain `K_i_adaptive` decays exponentially, which may weaken its authority as it gets close to the target, contributing to the final `stable_x_error`. The best-performing program used a simpler, fixed-gain integral controller. I will revert to this more robust design, using a fixed `K_i` of `0.9` (a slight increase from the best version to better counteract the high friction) and tightening its activation gates to match the proven configuration. This provides consistent force to nullify steady-state position errors.
+
+3.  **Introduce Direct Position Centering:** To decisively eliminate the final position error, I will add a dedicated Proportional-Derivative (PD) controller for the cart's position (`x`) and velocity (`dx`). This controller is gated by a `stability_factor`, ensuring it only activates when the pole is nearly perfectly balanced. This creates a distinct "precision hold" phase, where the primary objective shifts to centering the cart. This directly targets the `stable_x_error` metric that is currently preventing the full success bonus.
+
+These changes combine to create a more decisive and accurate controller, particularly in the critical final stabilization phase, without compromising the excellent speed and energy efficiency of the recovery phase.
+
+<NAME>
+refined_prediction_and_position_hold
+</NAME>
+
+<DESCRIPTION>
+This edit implements a three-part strategy to improve final positioning and recovery dynamics. First, it corrects the sign of the predictive momentum term to `-0.12`, aligning with empirically superior prior solutions for better phase lead during recovery. Second, it replaces the complex adaptive integral gain with a stronger, fixed gain (`K_i = 0.9`) and tighter activation gates to more effectively nullify steady-state position error. Finally, it introduces a new direct PD position controller that activates only when the pole is highly stable, creating a "precision hold" phase to aggressively reduce the final cart position error and secure the full success bonus.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+=======
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.9 # Increased for better position authority against friction
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        # Corrective term based on predicted divergence
+        # If theta * dtheta_pred > 0, system is diverging. We need MORE corrective force.
+        # LQR gives Force propto theta. We add to it.
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = 0.15 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Predictive momentum compensation. The negative sign here provides critical phase lead,
+        # acting as a non-linear damping when returning to center and accelerating the "catch" maneuver
+        # when falling away. This counter-intuitive sign is empirically the most effective.
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.12 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        # Adaptive integral control
+        # Tight gating for precision hold
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        # Adaptive integral gain: exponential decay near 0 to avoid limit cycles
+        K_i_adaptive = 1.2 * np.exp(-3.0 * (abs(theta) + 0.5 * abs(dtheta)))
+
+        if integral_gate > 0.05:
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -2.0, 2.0)
+        else:
+            self.integral_x *= 0.95
+
+        integral_force = K_i_adaptive * integral_gate * self.integral_x
+        # Correct sign: Subtract integral force to oppose position error
+        force = force - integral_force
+
+        return float(force[0])
+=======
+        # Dual-gated integral action for precise centering
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1: # Tighter activation gate from best performer
+            self.integral_x += x * DT
+            self.integral_x = np.clip(self.integral_x, -1.5, 1.5) # Reduced limits to prevent overshoot
+        else:
+            self.integral_x *= 0.95 # Gradual decay outside the gate
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force - integral_force
+
+        # Direct position centering when pole is stable
+        # This acts as a PD controller on cart position, activating only near equilibrium to fix final error.
+        stability_factor = np.exp(-10.0 * (theta**2 + 0.5 * dtheta**2)) # Tighter activation cone
+        if stability_factor > 0.5:
+            position_correction = -0.8 * x * stability_factor - 0.4 * dx * stability_factor
+            force = force + position_correction
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

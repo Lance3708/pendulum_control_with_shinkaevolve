@@ -1,0 +1,96 @@
+Based on analyzing the performance data, I notice the current program achieves excellent energy efficiency (0.01 per step) but could improve stabilization time (currently 192 steps). The key insight is that we can leverage the system's natural dynamics more effectively by adding a phase-aware control component that anticipates the pendulum's motion.
+
+<NAME>
+phase_aware_swing_assist
+</NAME>
+
+<DESCRIPTION>
+The current swing-up assist uses angular momentum but doesn't fully exploit the pendulum's natural oscillation patterns. By adding a phase-aware component that considers both position and velocity simultaneously, we can provide more intelligent assistance that works with the pendulum's natural dynamics rather than against them.
+
+This change introduces a phase-space ellipse metric that combines angle and angular velocity in a physically meaningful way. When the pendulum is in regions of phase space where it's naturally accelerating away from upright, we provide stronger corrective forces. This should help reduce the number of oscillations needed to stabilize.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Add physics-informed swing-up assist for large angles (>0.8 rad)
+        if abs(theta) > 0.8:
+            # Normalized divergence metric: angular momentum scaled by natural frequency
+            norm_momentum = (theta * dtheta) / (self.omega_n * L_COM)
+            # Smooth activation based on angle deviation
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Increase assist if pole is falling further (same sign)
+            falling_factor = 1.0 + 0.5 * float(theta * dtheta > 0)
+            # Additive assist force
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor * np.abs(norm_momentum)
+            force += u_swing
+=======
+        # Enhanced phase-aware swing-up assist for large deviations
+        # Use phase-space ellipse metric combining angle and velocity
+        phase_metric = (theta**2) / (0.9**2) + (dtheta**2) / (2.5**2)
+
+        if phase_metric > 1.0:  # Outside nominal operating region
+            # Phase-aware activation: stronger when moving away from equilibrium
+            phase_activation = np.tanh(4.0 * (phase_metric - 1.0))
+
+            # Directional intelligence: assist based on phase-space position
+            # When theta and dtheta have same sign, pole is moving away - need stronger correction
+            phase_aware_gain = 1.0 + 0.8 * float(theta * dtheta > 0)
+
+            # Natural frequency scaled assistance
+            norm_factor = np.sqrt(theta**2 + (dtheta/self.omega_n)**2) / 2.0
+
+            # Additive phase-correct force
+            u_phase = 12.0 * phase_activation * np.sign(theta) * phase_aware_gain * norm_factor
+            force += u_phase
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+optimized_lqr_weights
+</NAME>
+
+<DESCRIPTION>
+The current LQR weights (Q=[4.5, 44.0, 0.6, 3.2]) work well but could be fine-tuned for faster convergence. Based on the performance trends, slightly increasing the angular velocity weight (Q[3]) to 3.3 provides better damping of oscillations without sacrificing energy efficiency. This small adjustment should help reduce the final stabilization time.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: use best-performing Q matrix from prior experiments
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])  # Proven to achieve 4920+ score
+        R = np.array([[1.0]])
+=======
+        # Fine-tuned LQR weights for faster convergence
+        Q = np.diag([4.5, 44.0, 0.6, 3.3])  # Increased angular velocity damping
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+smooth_gain_transition
+</NAME>
+
+<DESCRIPTION>
+The current gain scheduling uses abrupt thresholds (0.6 for position, 1.0 for velocity). By making these transitions slightly smoother and more continuous, we can eliminate small discontinuities that might cause minor oscillations. This change uses exponential smoothing for the gain transitions, which should provide more natural control authority changes.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Smooth, differentiable gain scheduling using tanh activation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain (use simple product - proven more effective)
+        adaptive_gain = pos_gain * vel_gain
+=======
+        # Enhanced smooth gain scheduling with exponential transitions
+        # Continuous activation without hard thresholds
+        pos_gain = 1.0 + 0.5 * (1.0 - np.exp(-5.0 * abs(theta)**2))
+        vel_gain = 1.0 + 0.3 * (1.0 - np.exp(-3.0 * abs(dtheta)**2))
+
+        # Synergy term for coupled angle-velocity situations
+        coupled_gain = 1.0 + 0.2 * np.tanh(2.0 * abs(theta * dtheta))
+
+        # Combined adaptive gain
+        adaptive_gain = pos_gain * vel_gain * coupled_gain
+>>>>>>> REPLACE
+</DIFF>

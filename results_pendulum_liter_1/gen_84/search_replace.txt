@@ -1,0 +1,92 @@
+Looking at the performance metrics, the current program achieves a score of 4878.24, while the best performers reach 4920.22. The key differences are:
+
+1. **Stabilization time**: Current = 198 steps, Best = 192 steps (6 steps slower)
+2. **Q-matrix weights**: Current uses `[4.0, 38.0, 0.5, 3.4]`, Best uses `[4.5, 44.0, 0.6, 3.2]`
+
+The best performers also include a swing-up assist mechanism for large angles (>0.8 rad) that helps with faster initial recovery. Let me implement the proven optimal configuration.
+
+<NAME>
+restore_optimal_lqr_with_swing_assist
+</NAME>
+
+<DESCRIPTION>
+This edit restores the proven optimal LQR weights Q=[4.5, 44.0, 0.6, 3.2] from the best-performing programs (4920.22 score) and adds the continuous falling-factor swing-up assist mechanism. The key improvements are:
+
+1. **Q-matrix optimization**: Increase Q[1] from 38.0 to 44.0 for stronger angle correction, Q[0] from 4.0 to 4.5 for better cart positioning, Q[2] from 0.5 to 0.6 for improved velocity damping, and reduce Q[3] from 3.4 to 3.2 (the higher value was causing slower convergence).
+
+2. **Swing-up assist**: Add an additive swing-up assist term for large angles (>0.8 rad) that uses a continuous falling-severity factor. This provides extra corrective impulse when the pole is falling away from equilibrium, helping reduce stabilization time from 198 to 192 steps.
+
+3. **Numerical safety**: Add small epsilon to angle normalization for robustness.
+
+These changes directly target the 6-step stabilization time gap that accounts for ~42 points difference in the time bonus.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: enhanced angular velocity damping for improved stability
+        # Q[1]=38.0 for angle correction, Q[3]=3.4 for stronger angular velocity damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.4])
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: proven optimal from best performer (4920.22 score)
+        # Q[1]=44.0 for strong angle correction, Q[3]=3.2 for optimal oscillation damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with continuous falling-factor swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist for large angles (>0.8 rad)
+        # Uses continuous falling-severity factor for smoother, more effective correction
+        if abs(theta) > 0.8:
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Continuous falling factor: scales based on divergence rate
+            # When theta*dtheta > 0, pole is falling further from equilibrium
+            falling_factor = 1.0 + 0.5 * np.tanh(3.0 * theta * dtheta / (abs(theta) + 0.1))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

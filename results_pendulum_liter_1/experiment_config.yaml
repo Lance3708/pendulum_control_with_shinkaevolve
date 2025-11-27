@@ -1,0 +1,122 @@
+database_config:
+  archive_size: 40
+  db_path: results_pendulum_liter/evolution_db.sqlite
+  elite_selection_ratio: 0.3
+  embedding_model: text-embedding-3-small
+  enforce_island_separation: true
+  exploitation_alpha: 1.0
+  exploitation_ratio: 0.2
+  island_elitism: true
+  migration_interval: 10
+  migration_rate: 0.1
+  num_archive_inspirations: 4
+  num_beams: 5
+  num_islands: 2
+  num_top_k_inspirations: 3
+  parent_selection_lambda: 10.0
+  parent_selection_strategy: weighted
+evolution_config:
+  code_embed_sim_threshold: 0.995
+  embedding_model: gemini-embedding-001
+  init_program_path: initial.py
+  job_type: local
+  language: python
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.5
+  llm_kwargs:
+    max_tokens: 4096
+    reasoning_efforts:
+    - auto
+    - low
+    - medium
+    - high
+    temperatures:
+    - 0.0
+    - 0.5
+    - 1.0
+  llm_models:
+  - deepseek-reasoner
+  - claude-opus-4-5
+  - gemini/gemini-2.5-pro
+  - gemini-3-pro-preview
+  - xai/grok-4-1-fast-reasoning
+  - glm-4.6
+  - dashscope/qwen3-coder-plus
+  - dashscope/qwen-plus-2025-07-28
+  max_novelty_attempts: 3
+  max_parallel_jobs: 8
+  max_patch_attempts: 2
+  max_patch_resamples: 3
+  meta_llm_kwargs:
+    max_tokens: 4096
+    temperatures:
+    - 0.0
+  meta_llm_models:
+  - dashscope/qwen3-max
+  meta_max_recommendations: 5
+  meta_rec_interval: 5
+  novelty_llm_kwargs:
+    max_tokens: 4096
+    temperatures:
+    - 0.0
+  novelty_llm_models:
+  - gemini-3-pro-preview
+  num_generations: 300
+  patch_type_probs:
+  - 0.6
+  - 0.3
+  - 0.1
+  patch_types:
+  - diff
+  - full
+  - cross
+  results_dir: results_pendulum_liter
+  task_sys_msg: "You are a CREATIVE control system designer and python programmer.\n\
+    Your mission is to discover NOVEL control strategies for an extremely challenging\
+    \ Single Inverted Pendulum system.\n\n**The Challenge (EXTREME DIFFICULTY):**\n\
+    - Cart mass: 1.0 kg\n- Pole mass: 0.35 kg (75% heavier than standard - massive\
+    \ inertia)\n- Pole length: 2.5 m (extremely long - severe instability)\n- Friction\
+    \ (cart): 0.35 (high energy dissipation)\n- Friction (joint): 0.25 (significant\
+    \ damping at pivot)\n- Initial angle: 0.4 rad (~23 degrees - far from equilibrium)\n\
+    \nThis setup breaks conventional control assumptions. Traditional approaches may\
+    \ struggle. **You need to think differently.**\n\n**Your Mission:**\nDesign a\
+    \ controller that achieves ALL of these simultaneously:\n1. Stabilize pole to\
+    \ vertical (theta \u2192 0)\n2. Center the cart (x \u2192 0)\n3. Eliminate all\
+    \ motion (dx \u2192 0, dtheta \u2192 0)\n4. Minimize stabilization time\n5. Minimize\
+    \ energy consumption\n\n**State Information:** [x, theta, dx, dtheta]\n- x: Cart\
+    \ position (m)\n- theta: Pole angle from vertical (rad)\n- dx: Cart velocity (m/s)\n\
+    - dtheta: Angular velocity (rad/s)\n\n**Hard Constraints:**\n- FAILURE if: theta\
+    \ > 1.0 rad OR |x| > 10.0 m\n- Control force: [-100, 100] N\n\n**Scoring System\
+    \ (~7300 points possible):**\n- Base Score: ~500-800 (stability quality)\n- Time\
+    \ Bonus: up to +3000 (faster = better)\n- Energy Bonus: up to +2500 (efficient\
+    \ = better)\n- Success Bonus: up to +800 (precision matters)\n\n**Performance\
+    \ Benchmarks:**\n- Basic approach: ~2500-4000 points\n- Good solution: ~5000-6500\
+    \ points\n- Exceptional solution: ~6800-7200 points\n\n---\n\n**IMPORTANT - THINK\
+    \ CREATIVELY:**\n\n\U0001F6AB **Don't limit yourself to textbook methods.** \n\
+    \U0001F6AB **Don't assume one control law fits all situations.**\n\U0001F6AB **Don't\
+    \ ignore the physical insights this system offers.**\n\n\u2705 **DO consider:**\n\
+    - What if different situations need different control strategies?\n- What if the\
+    \ control law should EVOLVE during the motion?\n- What physical principles (energy,\
+    \ momentum, dynamics) can you exploit?\n- Can you identify distinct phases in\
+    \ the stabilization process?\n- Are there nonlinear phenomena you can leverage?\n\
+    - What if optimal control at t=0 differs from optimal control near equilibrium?\n\
+    \n**Thought Experiments:**\n- When the pole is falling fast, what matters most?\n\
+    - When near equilibrium, what's the priority?\n- How does the long pole length\
+    \ change the physics?\n- Can you \"feel\" when to be aggressive vs. gentle?\n\
+    - Is there hidden structure in the state space you can exploit?\n\n**Challenge\
+    \ Questions:**\n- What happens if you treat this as multiple sub-problems?\n-\
+    \ Can you design control that \"understands\" the system's natural behavior?\n\
+    - How would YOU balance this pole if you were physically there?\n- What information\
+    \ in the state vector is most valuable at different moments?\n\n---\n\n**Your\
+    \ Task:**\nImplement `get_control_action(state)` returning a float force in [-100,\
+    \ 100].\n\n**Be bold. Be creative. Surprise yourself with novel solutions.**\n\
+    The system is waiting for your innovative approach.\n"
+  use_text_feedback: false
+job_config:
+  conda_env: null
+  eval_program_path: evaluate.py
+  extra_cmd_args: {}
+  time: null
+results_directory: results_pendulum_liter
+timestamp: '2025-11-25T23:30:52.002934'

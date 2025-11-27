@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "Validation failed: Pole fell over (> 1.5 rad)"
+}

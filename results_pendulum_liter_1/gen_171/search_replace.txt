@@ -1,0 +1,147 @@
+
+
+<adaptive_swing_up_with_momentum_prediction>
+I'll enhance the swing-up strategy by incorporating momentum prediction and energy-aware scaling, while also improving the integral control gating.
+</adaptive_swing_up_with_momentum_prediction>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR with integral action and robust swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization using arctan2
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Proven optimal gain scheduling
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Enhanced swing-up assist using mechanical energy deficit
+        if abs(theta) > 0.8:
+            # Calculate current mechanical energy of pendulum
+            E_kinetic = 0.5 * M_POLE * (L_COM * dtheta)**2
+            E_potential = M_POLE * G * L_COM * (1 - np.cos(theta))
+            E_current = E_kinetic + E_potential
+
+            # Energy required to reach upright unstable equilibrium
+            E_target = 2 * M_POLE * G * L_COM  # Potential energy at top
+
+            # Energy deficit ratio (0 = full energy, 1 = no energy)
+            energy_deficit = max(0.0, 1.0 - E_current / E_target)
+
+            # Activation based on angle and energy deficit
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8)) * energy_deficit
+
+            # Directional assist based on pole angle
+            u_swing = 8.0 * swing_activation * np.sign(theta)
+            force = force + u_swing
+
+        # Soft-switched integral action for cart position
+        # Simpler angle-only gate (proven to achieve best performance)
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        # Small additional cart velocity damping when near equilibrium
+        # Helps reduce overshoot during cart centering
+        if abs(theta) < 0.15:
+            cart_damp = -0.08 * dx * (0.15 - abs(theta)) / 0.15
+            force = force + cart_damp
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR with integral action and robust swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Robust angle normalization using arctan2
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Enhanced gain scheduling with steeper transitions for faster response
+        pos_gain = 1.0 + 0.6 * np.tanh(6.0 * max(0.0, abs(theta) - 0.55))
+        vel_gain = 1.0 + 0.4 * np.tanh(5.0 * max(0.0, abs(dtheta) - 0.8))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Predictive momentum-based swing-up assist with energy awareness
+        if abs(theta) > 0.75:
+            # Calculate current mechanical energy of pendulum
+            E_kinetic = 0.5 * M_POLE * (L_COM * dtheta)**2
+            E_potential = M_POLE * G * L_COM * (1 - np.cos(theta))
+            E_current = E_kinetic + E_potential
+
+            # Energy required to reach upright unstable equilibrium
+            E_target = 2 * M_POLE * G * L_COM  # Potential energy at top
+
+            # Energy deficit ratio (0 = full energy, 1 = no energy)
+            energy_deficit = max(0.0, 1.0 - E_current / E_target)
+
+            # Enhanced activation based on angle and energy deficit
+            swing_activation = np.tanh(7.0 * (abs(theta) - 0.75)) * (0.7 + 0.3 * energy_deficit)
+
+            # Predictive momentum compensation using estimated angular acceleration
+            # Estimate angular acceleration from friction-aware dynamics
+            sin_t = np.sin(theta)
+            cos_t = np.cos(theta)
+            Mtot = M_CART + M_POLE
+            denom = L_COM * (4.0/3.0 - M_POLE * cos_t**2 / Mtot)
+            theta_acc_est = (G * sin_t - cos_t * (M_POLE * L_COM * dtheta**2 * sin_t) / Mtot) / denom
+            # Add friction effects
+            theta_acc_est -= (FRICTION_JOINT * dtheta) / (M_POLE * L_COM**2)
+
+            # Predict future angular velocity
+            dtheta_pred = dtheta + theta_acc_est * DT
+
+            # Momentum-based falling factor with prediction
+            momentum_factor = theta * dtheta_pred
+            natural_freq = np.sqrt(G / L_COM)
+            falling_factor = 1.0 + np.tanh(2.5 * momentum_factor / (L_COM * natural_freq))
+
+            u_swing = 9.0 * swing_activation * np.sign(theta) * falling_factor
+            force = force + u_swing
+
+        # Velocity-gated integral action for better cart centering
+        angle_gate = np.tanh(15.0 * (0.12 - abs(theta)))
+        velocity_gate = np.tanh(10.0 * (1.2 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.15:  # Tighter threshold for more precise activation
+            self.integral_x += x * DT
+        else:
+            # Adaptive leaky integration based on angle magnitude
+            leak_rate = 0.92 + 0.06 * np.exp(-8.0 * abs(theta))
+            self.integral_x *= leak_rate
+
+        integral_force = self.K_i * integral_gate * self.integral_x
+        force = force + integral_force
+
+        # Enhanced cart velocity damping when near equilibrium for better settling
+        if abs(theta) < 0.2:
+            # Quadratic damping for smoother response near target
+            cart_damp = -0.12 * dx * abs(dx) * (0.2 - abs(theta)) / 0.2
+            force = force + cart_damp
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

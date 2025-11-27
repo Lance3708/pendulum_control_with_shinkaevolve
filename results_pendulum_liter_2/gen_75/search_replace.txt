@@ -1,0 +1,79 @@
+<NAME>
+asymmetric_integral_windup_with_position_decay
+</NAME>
+
+<DESCRIPTION>
+Looking at the performance metrics, the best-performing solutions (score ~4704) have final_x_error around 0.09 and stable_x_error around 0.32. The current program has final_x_error of 0.35 and stable_x_error of 0.30.
+
+The key insight from recommendation #4 is to implement asymmetric integral windup bounds that are responsive to the cart's position. When the cart drifts in one direction, the integral should be allowed to accumulate more in the corrective direction while being more constrained in the direction that would worsen the drift.
+
+Additionally, I'll increase the integral decay rate when inactive (from 0.94 to 0.90) to make the controller more responsive to state changes, and adjust the position-proportional decay on the windup limits. This should help reduce the final_x_error while maintaining fast stabilization.
+
+The change targets the balancing phase integral control, which is critical for final position accuracy - the metric where we're underperforming compared to the best solutions.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        else:  # balancing phase
+            # Enhanced integral control with proper sign and windup protection
+            angle_gate = np.tanh(12.0 * (0.12 - abs_theta))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            # Adaptive integral gain: higher near equilibrium, includes position error
+            # Including |x| directly links integral aggressiveness to centering need
+            K_i_adaptive = 0.95 * np.exp(-3.0 * (abs_theta + 0.5 * abs(dtheta) + 0.2 * abs(x)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.30, 0.95)
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Enhanced windup protection with tighter limits
+                self.integral_x = np.clip(self.integral_x, -1.2, 1.2)
+            else:
+                self.integral_x *= 0.94  # Faster decay for quicker response to changes
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # Add integral force (LQR already handles the sign properly)
+            force = force + integral_force
+
+            # Enhanced position correction for better centering - always active in balancing
+            stability_factor = np.exp(-6.0 * (theta**2 + 0.25 * dtheta**2))
+            if stability_factor > 0.15:  # Lower threshold for more active centering
+                # Stronger position correction with velocity damping
+                position_correction = -1.5 * x * stability_factor - 0.8 * dx * stability_factor
+                force = force + position_correction
+=======
+        else:  # balancing phase
+            # Enhanced integral control with proper sign and windup protection
+            angle_gate = np.tanh(12.0 * (0.12 - abs_theta))
+            velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+            integral_gate = angle_gate * velocity_gate
+
+            # Adaptive integral gain: higher near equilibrium, includes position error
+            # Including |x| directly links integral aggressiveness to centering need
+            K_i_adaptive = 0.95 * np.exp(-3.0 * (abs_theta + 0.6 * abs(dtheta) + 0.3 * abs(x)))
+            K_i_adaptive = np.clip(K_i_adaptive, 0.30, 0.95)
+
+            if integral_gate > 0.1:
+                self.integral_x += x * DT
+                # Asymmetric windup limits: allow more accumulation in corrective direction
+                # When x > 0, we need negative integral, so lower bound is more permissive
+                # When x < 0, we need positive integral, so upper bound is more permissive
+                lower_limit = -1.5 + 0.4 * x  # More negative when x is negative
+                upper_limit = 1.5 + 0.4 * x   # More positive when x is positive
+                self.integral_x = np.clip(self.integral_x, lower_limit, upper_limit)
+            else:
+                self.integral_x *= 0.90  # Faster decay for quicker response to changes
+
+            integral_force = K_i_adaptive * integral_gate * self.integral_x
+            # Add integral force (LQR already handles the sign properly)
+            force = force + integral_force
+
+            # Enhanced position correction for better centering - always active in balancing
+            stability_factor = np.exp(-6.0 * (theta**2 + 0.25 * dtheta**2))
+            if stability_factor > 0.15:  # Lower threshold for more active centering
+                # Stronger position correction with velocity damping
+                position_correction = -1.8 * x * stability_factor - 0.9 * dx * stability_factor
+                force = force + position_correction
+>>>>>>> REPLACE
+</DIFF>

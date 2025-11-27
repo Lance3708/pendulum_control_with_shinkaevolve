@@ -1,0 +1,93 @@
+Looking at the performance metrics, the best-performing program achieves a score of 4920.14 with Q = [4.5, 44.0, 0.6, 3.2] and stabilization time of 192 steps. The current program uses Q = [4.0, 38.0, 0.5, 3.0] and achieves 4878.27 with 198 steps stabilization.
+
+**Key Observations:**
+1. The best performer uses Q[1]=44.0 (vs current 38.0) for more aggressive angle correction
+2. The best performer uses Q[3]=3.2 (vs current 3.0) for better damping
+3. The adaptive gain scheduling in the best performer uses multiplicative combination which proved effective
+
+**My Proposed Improvement:**
+Based on recommendation #1 and the historical evidence, I'll:
+1. Update Q matrix to the proven optimal values [4.5, 44.0, 0.6, 3.2]
+2. Slightly increase Q[3] to 3.28 as suggested, which may reduce early oscillations
+3. Add a physics-informed feedforward term for large angles (recommendation #2) to help during the critical initial swing-down phase without disrupting the near-equilibrium LQR optimality
+
+<NAME>
+optimized_q_with_swing_assist
+</NAME>
+
+<DESCRIPTION>
+This edit combines two targeted improvements:
+1. Updates Q matrix to proven optimal values [4.5, 44.0, 0.6, 3.28] - the 44.0 on theta provides aggressive angle correction, and 3.28 on dtheta (slightly higher than 3.2) should reduce early oscillations during swing-down from 0.9 rad
+2. Adds an additive physics-informed swing-up assist term that activates only for large angles (>0.7 rad), providing extra "catch" force when the pole is falling fast without distorting the optimal LQR feedback near equilibrium. This decouples aggressive recovery from precise upright regulation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: aggressive angular correction with strong damping
+        # Q[1]=38.0 for fast angle correction, Q[3]=3.0 for oscillation damping
+        Q = np.diag([4.0, 38.0, 0.5, 3.0])
+        R = np.array([[1.0]])
+=======
+        # Optimized LQR weights: proven best configuration with fine-tuned damping
+        # Q[1]=44.0 for aggressive angle correction, Q[3]=3.28 for optimal oscillation damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])
+        R = np.array([[1.0]])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with smooth, differentiable gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with smooth gain scheduling and swing-up assist"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi] with epsilon padding for numerical stability
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        # Eliminates discontinuities while preserving strong response at large errors
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist: physics-informed feedforward for large angles
+        # Activates smoothly only when |theta| > 0.7 rad, decoupled from LQR
+        # Provides extra "catch" force proportional to angular velocity when falling
+        swing_activation = np.tanh(6.0 * max(0.0, abs(theta) - 0.7))
+        u_swing = 6.0 * swing_activation * np.sign(theta) * max(0.0, -theta * dtheta)
+
+        force = force + u_swing
+
+        return float(force[0])
+=======
+>>>>>>> REPLACE
+</DIFF>

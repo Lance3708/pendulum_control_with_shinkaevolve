@@ -1,0 +1,218 @@
+<NAME>
+improved_lqr_with_discrete_time_and_integral_action
+</NAME>
+
+<DESCRIPTION>
+This update implements two key improvements:
+1. Switches from continuous-time LQR to discrete-time LQR using zero-order hold discretization, which better matches the actual Euler integration used in the simulator
+2. Adds integral action for cart position control by extending the state space, which helps eliminate steady-state position error while maintaining stability
+
+These changes work together to improve both stabilization speed and steady-state accuracy, particularly addressing the persistent small cart position error seen in previous iterations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    High-Precision Adaptive LQR with Optimized LQR Weights for Faster Stabilization
+    """
+
+    def __init__(self):
+        # System parameters
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Runtime validation of physics consistency
+        assert abs(FRICTION_CART - 0.35) < 1e-6, "Cart friction mismatch"
+        assert abs(FRICTION_JOINT - 0.25) < 1e-6, "Joint friction mismatch"
+        assert abs(L_COM - 1.25) < 1e-6, "Pole length mismatch"
+
+        # Physically accurate linearized A matrix with consistent denom0 usage
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3) - fully consistent with simulator denominator structure
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)  # Now perfectly matches simulator physics
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Optimized LQR weights: increased penalties for faster stabilization
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])  # Increased from [4.0, 38.0, 0.5, 3.0]
+        R = np.array([[1.0]])
+
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+
+    def get_action(self, state):
+        """Enhanced adaptive LQR control with synergy gain for falling prevention"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Synergy gain: extra authority when pole is falling away from equilibrium
+        # (theta and dtheta have same sign means moving further from upright)
+        falling_away = theta * dtheta > 0
+        synergy_gain = 1.0 + 0.15 * falling_away * np.tanh(3.0 * abs(theta))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain * synergy_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    force = controller.get_action(state)
+    # Apply force limits
+    return float(np.clip(force, -100.0, 100.0))
+=======
+# EVOLVE-BLOCK-START
+class Controller:
+    """
+    High-Precision Discrete-Time LQR with Integral Action for Cart Position Control
+    """
+
+    def __init__(self):
+        # System parameters
+        m = M_POLE
+        M = M_CART
+        l = L_COM
+        g = G
+        Mtot = M + m
+        denom0 = l * (4.0 / 3.0 - m / Mtot)
+        b_c = FRICTION_CART
+        b_j = FRICTION_JOINT
+
+        # Runtime validation of physics consistency
+        assert abs(FRICTION_CART - 0.35) < 1e-6, "Cart friction mismatch"
+        assert abs(FRICTION_JOINT - 0.25) < 1e-6, "Joint friction mismatch"
+        assert abs(L_COM - 1.25) < 1e-6, "Pole length mismatch"
+
+        # Physically accurate linearized A matrix with consistent denom0 usage
+        A = np.zeros((4, 4))
+        A[0, 2] = 1.0
+        A[1, 3] = 1.0
+
+        # theta_acc row (3) - fully consistent with simulator denominator structure
+        A[3, 1] = g / denom0
+        A[3, 2] = b_c / (Mtot * denom0)
+        A[3, 3] = -b_j / (m * l * denom0)  # Now perfectly matches simulator physics
+
+        # x_acc row (2)
+        A[2, 1] = -(m * l / Mtot) * A[3, 1]
+        A[2, 2] = -b_c / Mtot - (m * l / Mtot) * A[3, 2]
+        A[2, 3] = b_j / (Mtot * denom0)
+
+        # B matrix
+        B = np.zeros((4, 1))
+        B[2, 0] = 1.0 / Mtot + (m * l) / (Mtot**2 * denom0)
+        B[3, 0] = -1.0 / (Mtot * denom0)
+
+        # Discretize the system using zero-order hold
+        from scipy.signal import cont2discrete
+        sys = cont2discrete((A, B, np.eye(4), np.zeros((4, 1))), DT, method='zoh')
+        A_d, B_d = sys[0], sys[1]
+
+        # Extend state space for integral action on cart position
+        # Add integral of cart position as a new state
+        A_ext = np.zeros((5, 5))
+        A_ext[:4, :4] = A_d
+        A_ext[4, 0] = DT  # integral of position
+        A_ext[4, 4] = 1.0  # integral state persists
+
+        B_ext = np.zeros((5, 1))
+        B_ext[:4, :] = B_d
+        B_ext[4, :] = 0.0  # no direct control over integral
+
+        # Optimized LQR weights with integral action
+        Q = np.diag([4.5, 44.0, 0.6, 3.2, 0.1])  # Added weight for integral state
+        R = np.array([[1.0]])
+
+        # Solve discrete-time LQR
+        self.K = self.solve_dlqr(A_ext, B_ext, Q, R)
+
+        # Initialize integral state
+        self.integral_x = 0.0
+
+    def solve_dlqr(self, A, B, Q, R):
+        """Solve discrete-time LQR"""
+        from scipy.linalg import solve_discrete_are
+        P = solve_discrete_are(A, B, Q, R)
+        K = np.linalg.inv(R + B.T @ P @ B) @ B.T @ P @ A
+        return K
+
+    def get_action(self, state):
+        """Enhanced adaptive LQR control with integral action and synergy gain"""
+        x, theta, dx, dtheta = state
+
+        # Update integral state
+        self.integral_x += x * DT
+
+        # Normalize angle to [-pi, pi]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        # Extended state vector with integral action
+        state_vec = np.array([x, theta, dx, dtheta, self.integral_x])
+        base_force = -self.K @ state_vec
+
+        # Smooth, differentiable gain scheduling using tanh activation
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Synergy gain: extra authority when pole is falling away from equilibrium
+        falling_away = theta * dtheta > 0
+        synergy_gain = 1.0 + 0.15 * falling_away * np.tanh(3.0 * abs(theta))
+
+        # Combined multiplicative gain
+        adaptive_gain = pos_gain * vel_gain * synergy_gain
+
+        force = base_force * adaptive_gain
+
+        return float(force[0])
+
+# Initialize controller
+controller = Controller()
+
+def get_control_action(state):
+    force = controller.get_action(state)
+    # Apply force limits
+    return float(np.clip(force, -100.0, 100.0))
+>>>>>>> REPLACE
+
+</DIFF>

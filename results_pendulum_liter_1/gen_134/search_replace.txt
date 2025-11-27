@@ -1,0 +1,60 @@
+Looking at the performance metrics, the current best score is 4933.93 with stabilization_time=190. The current program scores 4927.10 with stabilization_time=191. The key differentiator is the time bonus (faster stabilization = higher score).
+
+Analyzing the top performers, I notice that the best one (4933.93) uses:
+1. Q[3] = 3.2 (not 3.28)
+2. Integral action with K_i = 0.8
+3. A specific swing-up assist formulation
+
+The current program uses Q[3] = 3.28, which slightly increases angular velocity damping but may be slowing down the initial response. Let me propose a targeted improvement based on the recommendations:
+
+**Key insight**: The integral gating currently only checks angle (`0.1 - abs(theta)`), but recommendation #1 suggests adding a velocity condition to prevent premature activation during fast transients. This could reduce overshoot and speed up settling.
+
+Additionally, I'll tune Q[3] back to 3.2 (proven optimal) and add a small cross-state coupling term to improve cart convergence.
+
+<NAME>
+refined_integral_gating_with_velocity
+</NAME>
+
+<DESCRIPTION>
+This edit implements recommendation #1: refining the integral gating with a joint angle-velocity condition. The current integral gate only checks if |theta| < 0.1, but this can cause premature integral activation when the pole passes through upright at high velocity during transients. By adding a velocity gate (requiring |dtheta| < 1.0), we prevent integral buildup during fast-passing upright transients, reducing overshoot risk.
+
+Additionally, I'm reverting Q[3] from 3.28 back to 3.2, which was proven optimal in the best performer (4933.93 score). The slight increase to 3.28 appears to have marginally slowed the response without meaningful benefit.
+
+The combined changes should reduce stabilization time from 191 to ~190 steps, gaining approximately 7 points in time bonus.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced LQR weights with improved angular velocity damping
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])  # Q[3] increased from 3.2 to 3.28
+=======
+        # Proven optimal LQR weights from best performer (4933.93 score)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Soft-switched integral action for cart position
+        # Only activates when pole is nearly upright (<0.1 rad)
+        integral_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            self.integral_x *= 0.95  # Leaky integration when inactive
+=======
+        # Soft-switched integral action with joint angle-velocity gating
+        # Only activates when pole is nearly upright AND moving slowly
+        # This prevents premature activation during fast transient passes through upright
+        angle_gate = np.tanh(12.0 * (0.1 - abs(theta)))
+        velocity_gate = np.tanh(8.0 * (1.0 - abs(dtheta)))
+        integral_gate = angle_gate * velocity_gate
+
+        if integral_gate > 0.1:  # Only update integral when gate is significant
+            self.integral_x += x * DT
+        else:
+            # Angle-proportional decay: stronger when angle is large
+            decay_rate = 0.90 + 0.05 * np.exp(-10.0 * abs(theta))
+            self.integral_x *= decay_rate
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,66 @@
+<NAME>
+enhanced_returning_mask_predictive
+
+</NAME>
+
+<DESCRIPTION>
+Looking at the performance metrics, the best programs achieve ~4159 points with stabilization_time of 293 steps. The key insight from the recommendations is to enhance the predictive compensation by incorporating the "returning mask" more effectively.
+
+Currently, the predictive correction doesn't use the returning mask that was proven effective in some prior programs. The returning mask (0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))) reduces correction when the pole is naturally coming back toward vertical (theta * dtheta < 0), which prevents over-correction and saves energy.
+
+Additionally, I'll slightly tune the mid-swing damping to use the direction-aware factor (theta * dtheta) more effectively by multiplying it into the damping term rather than just using it as a condition. This creates smoother transitions and can help reduce oscillations during the swing-up phase.
+
+The combination should:
+1. Reduce unnecessary actuation when the pole is already returning to vertical
+2. Improve energy efficiency (already good at 14.59 total_energy)
+3. Potentially speed up stabilization by avoiding over-correction
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Corrective term based on predicted divergence, with slightly increased gain
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        predictive_correction = -0.14 * pred_divergence * np.tanh(2.0 * abs(theta))
+        force = force + predictive_correction
+=======
+        # Corrective term based on predicted divergence, with returning mask
+        # The returning mask reduces correction when pole is naturally coming back
+        pred_divergence = theta * dtheta_pred / (self.omega_n * L_COM)
+        returning_mask = 0.5 * (1.0 + np.tanh(3.0 * theta * dtheta))
+        predictive_correction = -0.14 * pred_divergence * np.tanh(2.5 * abs(theta)) * returning_mask
+        force = force + predictive_correction
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Direction-aware mid-swing angular damping
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+        if abs(theta) > 0.25 and abs(theta) < 0.85 and theta * dtheta > 0:
+            K_d_midswing = 2.5
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation
+            force = force + midswing_damp
+=======
+        # Direction-aware mid-swing angular damping with smooth direction factor
+        mid_swing_activation = np.exp(-4.0 * (abs(theta) - 0.5)**2)
+        if abs(theta) > 0.25 and abs(theta) < 0.85:
+            K_d_midswing = 2.8
+            # Smooth direction factor: positive when moving away, negative when returning
+            direction_factor = np.tanh(3.0 * theta * dtheta)
+            midswing_damp = -K_d_midswing * dtheta * mid_swing_activation * max(0.0, direction_factor)
+            force = force + midswing_damp
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # NEW: Adaptive cart damping to suppress non-essential movement
+        adaptive_dx_damping = -0.5 * dx * np.tanh(5.0 * abs(theta))
+        force = force + adaptive_dx_damping
+=======
+        # Adaptive cart damping to suppress non-essential movement
+        # Reduced coefficient for better energy efficiency
+        adaptive_dx_damping = -0.4 * dx * np.tanh(4.0 * abs(theta))
+        force = force + adaptive_dx_damping
+>>>>>>> REPLACE
+</DIFF>

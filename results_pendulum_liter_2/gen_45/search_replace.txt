@@ -1,0 +1,16 @@
+<NAME>revert_ki_init</NAME>
+<DESCRIPTION>Revert the fixed integral gain from 1.0 back to the proven 0.85 value from the highest-scoring prior configuration (4636.78 points). This avoids overcorrection in position integral action which contributed to degraded stable_x_error (0.60 vs 0.36) and reduced success_bonus.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        # Enhanced integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 1.0  # Increased for better position correction
+=======
+        # Integral control parameters
+        self.integral_x = 0.0
+        self.K_i = 0.85
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>revert_integral_gating</NAME>
+<DESCRIPTION>Precisely match the dual-gated integral parameters from the top-scoring prior (4636 points): narrower activation gates (0.1 and

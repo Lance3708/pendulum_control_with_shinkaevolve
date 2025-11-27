@@ -1,0 +1,15 @@
+Evaluating program: results_pendulum_liter/gen_20/main.py
+Saving results to: results_pendulum_liter/gen_20/results
+Run 1/1 completed in 0.03 seconds
+Correctness and error status saved to results_pendulum_liter/gen_20/results/correct.json
+Metrics saved to results_pendulum_liter/gen_20/results/metrics.json
+Evaluation or Validation failed: Validation failed: Pole fell over (> 1.5 rad)
+Metrics:
+  combined_score: 1085.3570044865019
+  public: {'score': 1085.3570044865019, 'base_score': 110.40826044620363, 'time_bonus': 1.0063878837075355, 'energy_bonus': 2497.942356156591, 'success_bonus': 0.0, 'stabilization_time': 1000, 'stabilization_ratio': 1.0, 'avg_energy_per_step': 0.0032345665910899634, 'total_energy': 3.2345665910899633, 'mean_step_reward': 0.11040826044620362, 'final_theta_error': 3.0835440073940195, 'final_x_error': 0.061650459431286636, 'stable_theta_error': 2.619290095003448, 'stable_x_error': 0.5613672546735385}
+  private: {'oscillation_penalty': -0.0, 'angle_oscillation_penalty': -24.0, 'boundary_penalty': -1000.0, 'unstable_penalty': -500.0, 'max_theta': 3.1414467337355862, 'max_x': 1.3394865240828155, 'max_force': 79.92267273091736, 'force_std': 5.687009370809428}
+  execution_time_mean: 0.03144928900292143
+  execution_time_std: 0.0
+  num_valid_runs: 0
+  num_invalid_runs: 1
+  all_validation_errors: ['Pole fell over (> 1.5 rad)']

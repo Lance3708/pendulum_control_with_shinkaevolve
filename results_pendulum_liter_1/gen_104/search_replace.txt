@@ -1,0 +1,127 @@
+<NAME>
+discrete_lqr_zoh
+</NAME>
+
+<DESCRIPTION>
+Implement discrete-time LQR using ZOH discretization to match the Euler simulator dynamics exactly, reducing phase lag and accelerating stabilization response (targets rec2). Simultaneously apply rec1 (arctan2 normalization for robust transients), rec3 (dimensionless normalized falling severity), rec4 (Q[3]=3.28 for better damping/error reduction). This physics-consistent upgrade minimizes continuous/discrete mismatch, enhances swing-up physics for long pole, ensures numerical robustness, and tunes for zero residual error—expected to shave 5-10 steps off 192 stabilization_time while preserving energy/success bonuses, pushing score >5000.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Optimized LQR weights: proven configuration from best performer (4920.14)
+        Q = np.diag([4.5, 44.0, 0.6, 3.2])  # Restored best-performing weights
+        R = np.array([[1.0]])
+
+        # Solve LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # Optimized LQR weights with enhanced damping (rec4)
+        Q = np.diag([4.5, 44.0, 0.6, 3.28])
+        R = np.array([[1.0]])
+
+        self.DT = 0.02
+        self.omega_n = np.sqrt(G / L_COM)
+
+        # Solve discrete-time LQR gains
+        self.K = self.solve_lqr(A, B, Q, R)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def solve_lqr(self, A, B, Q, R):
+        """Solve continuous-time LQR"""
+        from scipy.linalg import solve_continuous_are
+        P = solve_continuous_are(A, B, Q, R)
+        K = np.linalg.inv(R) @ B.T @ P
+        return K
+=======
+    def solve_lqr(self, A, B, Q, R):
+        """Solve discrete-time LQR with ZOH to match Euler simulator (rec2)"""
+        from scipy.linalg import solve_discrete_are
+        from scipy.signal import cont2discrete
+        import numpy as np
+
+        Ad, Bd, _, _ = cont2discrete((A, B, np.eye(4), np.zeros((4, 1))), self.DT, method='zoh')
+
+        # Approximate discrete costs from continuous
+        Qd = Q * self.DT
+        Rd = R * self.DT
+
+        P = solve_discrete_are(Ad, Bd, Qd, Rd)
+        K = np.linalg.solve(Bd.T @ P @ Bd + Rd, Bd.T @ P @ Ad)
+        return K
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """Adaptive LQR control with optimized gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Normalize angle to [-pi, pi] with numerical safety
+        theta = ((theta + np.pi + 1e-8) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Optimized gain scheduling: more aggressive for large errors
+        # Position-based gain: sharp response beyond 0.6 rad
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+
+        # Velocity-based gain: strong damping for high angular velocity
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain (simpler and more effective)
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist for large angles (>0.8 rad)
+        # Uses continuous falling-severity factor for smoother, more effective correction
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Continuous falling severity: scales from 1.0 to 2.0 based on how rapidly pole is falling
+            falling_severity = 1.0 + np.tanh(3.0 * theta * dtheta)
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """Adaptive LQR control with optimized gain scheduling"""
+        x, theta, dx, dtheta = state
+
+        # Robust arctan2 normalization (rec1)
+        theta = np.arctan2(np.sin(theta), np.cos(theta))
+
+        state_vec = np.array([x, theta, dx, dtheta])
+        base_force = -self.K @ state_vec
+
+        # Optimized gain scheduling: more aggressive for large errors
+        # Position-based gain: sharp response beyond 0.6 rad
+        pos_gain = 1.0 + 0.5 * np.tanh(5.0 * max(0.0, abs(theta) - 0.6))
+
+        # Velocity-based gain: strong damping for high angular velocity
+        vel_gain = 1.0 + 0.3 * np.tanh(4.0 * max(0.0, abs(dtheta) - 1.0))
+
+        # Combined multiplicative gain (simpler and more effective)
+        adaptive_gain = pos_gain * vel_gain
+
+        force = base_force * adaptive_gain
+
+        # Additive swing-up assist for large angles (>0.8 rad)
+        # Uses continuous falling-severity factor for smoother, more effective correction
+        if abs(theta) > 0.8:
+            # Physics-informed assist: push cart in direction to catch falling pole
+            swing_activation = np.tanh(6.0 * (abs(theta) - 0.8))
+            # Normalized falling severity for physical consistency with long pole (rec3)
+            falling_severity = 1.0 + np.tanh(3.0 * (theta * dtheta) / (L_COM * self.omega_n))
+            u_swing = 8.0 * swing_activation * np.sign(theta) * falling_severity
+            force = force + u_swing
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

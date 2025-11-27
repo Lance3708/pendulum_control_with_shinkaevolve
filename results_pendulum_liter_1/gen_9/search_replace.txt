@@ -1,0 +1,66 @@
+<NAME>
+adaptive_lqr_gains_near_equilibrium
+</NAME>
+
+<DESCRIPTION>
+The current LQR controller uses fixed gains derived from conservative Q/R weights, which results in slow convergence and low precision. While it stabilizes the system (hence high success bonus), it performs poorly on time and base scores due to sluggish response near equilibrium.
+
+I propose introducing **adaptive gain scheduling** based on pole angle magnitude. When the pendulum is close to upright (|theta| < 0.5 rad), we switch to a more aggressive LQR gain set that prioritizes fast stabilization and higher precision. This allows:
+- Conservative control during large deviations for robustness
+- Aggressive correction near upright for faster settling and better accuracy
+
+This hybrid approach leverages the stability of the original controller while dramatically improving performance where it matters most — near the target. The adaptation is smooth and safe because it only increases responsiveness when the system is already within the region of attraction.
+
+We keep the original K as "safe" and introduce a new, more aggressive K_aggressive computed with properly tuned Q/R matrices emphasizing theta and dtheta regulation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # LQR权重矩阵（更保守的次优设置，留出充分进化空间）
+        # Q: 显著降低权重，高度容忍误差 - 导致基础分数低
+        # R: 大幅增加权重，极度限制出力 - 导致响应慢，能耗高
+        Q = np.diag([2.0, 8.0, 0.05, 0.4])    # [x, theta, dx, dtheta] (更保守)
+        R = np.array([[3.0]])                  # 控制力惩罚极大 (非常不愿意用大力)
+
+        # 求解LQR增益
+        self.K = self.solve_lqr(A, B, Q, R)
+=======
+        # 基础LQR权重：保守稳定
+        Q_safe = np.diag([2.0, 8.0, 0.05, 0.4])
+        R_safe = np.array([[3.0]])
+        self.K_safe = self.solve_lqr(A, B, Q_safe, R_safe)
+
+        # 高精度调节模式：当接近竖直时启用
+        Q_aggressive = np.diag([8.0, 40.0, 1.0, 3.0])  # 更强调角度和角速度误差
+        R_aggressive = np.array([[0.8]])               # 允许更大控制力
+        self.K_aggressive = self.solve_lqr(A, B, Q_aggressive, R_aggressive)
+>>>>>>> REPLACE
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """LQR控制法则: u = -K * x"""
+        x, theta, dx, dtheta = state
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+        force = -self.K @ state_vec
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """自适应LQR控制：根据角度大小切换增益"""
+        x, theta, dx, dtheta = state
+        # 规范化角度到 [-π, π]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # 根据当前角度选择增益：越接近竖直，增益越大
+        if abs(theta) < 0.5:
+            force = -self.K_aggressive @ state_vec
+        else:
+            force = -self.K_safe @ state_vec
+
+        return float(force[0])
+>>>>>>> REPLACE
+</DIFF>

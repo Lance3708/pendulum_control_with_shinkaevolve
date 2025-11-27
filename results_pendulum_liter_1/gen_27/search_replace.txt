@@ -1,0 +1,65 @@
+<NAME>
+nonlinear_friction_compensation
+</NAME>
+
+<DESCRIPTION>
+The key insight is that the current friction model in the linearized system uses a first-order approximation of signum function for friction, which isn't accurate enough for this extremely challenging setup. I'm implementing a more sophisticated nonlinear friction compensation that:
+
+1. Uses a hyperbolic tangent function to smoothly approximate the signum function for friction, providing better continuity
+2. Adds a velocity-dependent friction compensation term that adapts to the current state
+3. Includes a small offset to prevent zero-crossing jitter
+
+This approach should provide better stabilization especially during the critical early phases when the pendulum is far from equilibrium, while maintaining smooth control actions that help with energy efficiency.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def get_action(self, state):
+        """改进的LQR控制法则: u = -K * x，带自适应增益调节"""
+        x, theta, dx, dtheta = state
+
+        # 角度归一化到[-π, π]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # 基础LQR控制律
+        force = -self.K_base @ state_vec
+
+        # 对大角度偏差应用增益调度
+        if abs(theta) > 0.6:
+            force *= self.high_gain_factor * (1.0 + 0.5 * (abs(theta) - 0.6))
+
+        # 限制控制力在物理可行范围内
+        force = np.clip(force, -100.0, 100.0)
+
+        return float(force[0])
+=======
+    def get_action(self, state):
+        """改进的LQR控制法则: u = -K * x，带自适应增益调节和非线性摩擦补偿"""
+        x, theta, dx, dtheta = state
+
+        # 角度归一化到[-π, π]
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        state_vec = np.array([x, theta, dx, dtheta])
+
+        # 基础LQR控制律
+        force = -self.K_base @ state_vec
+
+        # 非线性摩擦补偿项
+        # 使用双曲正切函数平滑地近似符号函数，避免在零点处的不连续性
+        friction_compensation = 0.1 * np.tanh(10 * dx) + 0.05 * np.tanh(5 * dtheta)
+        force += friction_compensation
+
+        # 对大角度偏差应用增益调度
+        if abs(theta) > 0.6:
+            force *= self.high_gain_factor * (1.0 + 0.5 * (abs(theta) - 0.6))
+
+        # 限制控制力在物理可行范围内
+        force = np.clip(force, -100.0, 100.0)
+
+        return float(force[0])
+>>>>>>> REPLACE
+
+</DIFF>

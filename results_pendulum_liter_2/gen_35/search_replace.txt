@@ -1,0 +1,20 @@
+<NAME>
+refine_predictive_compensation
+</NAME>
+
+<DESCRIPTION>
+The current predictive compensation uses an estimated temp term that already includes the centrifugal component, but it can be further refined by explicitly incorporating the reaction force from cart-pole coupling in the acceleration estimation. This improves prediction accuracy during high-energy swing-up dynamics without increasing computational cost. The change replaces the current temp_est calculation with a more physics-aware expression that directly accounts for how pole motion affects cart dynamics, leading to better divergence anticipation and reduced unnecessary actuation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # More accurate physics: estimate the 'temp' term from simulation EoM
+        # This includes the non-linear centrifugal component for better prediction
+        estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta) / self.Mtot
+=======
+        # Enhanced physics model: include reaction force from pole dynamics
+        # This captures the full coupling effect for superior prediction
+        estimated_temp = (force[0] - self.b_c * dx + self.m * self.l * dtheta**2 * sin_theta
+                        - (self.m * self.l * cos_theta * theta_acc_est)) / self.Mtot
+>>>>>>> REPLACE
+</DIFF>

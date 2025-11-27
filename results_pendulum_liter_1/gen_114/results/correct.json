@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "cannot import name 'dlqr' from 'scipy.linalg' (/home/lance/anaconda3/envs/shinka/lib/python3.11/site-packages/scipy/linalg/__init__.py)"
+}

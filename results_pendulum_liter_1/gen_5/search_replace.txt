@@ -1,0 +1,39 @@
+<NAME>
+aggressive_lqr_tuning
+</NAME>
+
+<DESCRIPTION>
+The current LQR controller uses extremely conservative weights (low Q, high R) that prioritize minimal control effort over stabilization speed and precision. This is suboptimal for the scoring system which heavily rewards fast stabilization (up to +3000 points) and precision.
+
+I propose retuning the LQR weights to:
+1. Increase Q matrix values significantly to penalize state errors much more aggressively
+2. Decrease R matrix value to allow larger control forces
+3. Properly weight all state variables based on their physical significance
+
+The new tuning:
+- Q = diag([10, 80, 5, 10]): High penalty on angle error (80), substantial penalty on position (10), moderate on velocities
+- R = [[0.5]]: Much lower control penalty, allowing aggressive corrections
+
+This change will make the controller respond faster to deviations, achieve tighter stabilization, and dramatically reduce stabilization time - directly improving both time bonus and energy efficiency (by preventing prolonged oscillations).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # LQR权重矩阵（更保守的次优设置，留出充分进化空间）
+        # Q: 显著降低权重，高度容忍误差 - 导致基础分数低
+        # R: 大幅增加权重，极度限制出力 - 导致响应慢，能耗高
+        Q = np.diag([2.0, 8.0, 0.05, 0.4])    # [x, theta, dx, dtheta] (更保守)
+        R = np.array([[3.0]])                  # 控制力惩罚极大 (非常不愿意用大力)
+=======
+        # LQR权重矩阵（激进调校以最大化得分）
+        # 高Q值：严格惩罚状态偏差，追求极致精度
+        # 低R值：允许使用更大控制力，换取更快稳定
+        # 经物理量纲分析和相对重要性调整：
+        # - theta权重最高(80): 角度是稳定性核心，且单位rad与其他不同
+        # - x位置次之(10): 需要归中但可稍宽松
+        # - 速度项适度惩罚(5,10): 防止过冲同时允许快速响应
+        # - R降至0.5: 允许充分出力，避免因节约能量导致响应迟缓
+        Q = np.diag([10.0, 80.0, 5.0, 10.0])   # [x, theta, dx, dtheta]
+        R = np.array([[0.5]])                   # 显著降低控制惩罚
+>>>>>>> REPLACE
+</DIFF>
