@@ -33,6 +33,7 @@ This project uses the [ShinkaEvolve](https://github.com/SakanaAI/shinka) framewo
 - 🔹 Initial angle:
   - Experiment 1: 0.4 rad (~23°)
   - Experiment 2: 1.02 rad (~58°) - **Extreme challenge**
+- 🔹 Simulation Sample Time: 20ms
 
 ### Control Objectives
 **Multi-Objective Optimization (MOP)**:
@@ -107,11 +108,12 @@ This project uses the [ShinkaEvolve](https://github.com/SakanaAI/shinka) framewo
 ## 📊 "Path to Best" Evolution Analysis
 
 ### Experiment 1: Conservative LQR Refinement
-
+# !!! missing gen 162
 **Generational evolution visualization**:
+
 ```
-Gen 0 → Gen 20 → Gen 26 → Gen 43 → Gen 93 → Gen 133 → Gen 148 → Gen 152 → Gen 170
-3195    3946     4432     4894     4920     4927      4934      4935      5016 points
+Gen 0 → Gen 20 → Gen 26 → Gen 43 → Gen 93 → Gen 133 → Gen 148 → Gen 152 → Gen 162 → Gen 170
+3195    3946     4432     4894     4920     4927      4934      4935      4920      5016 points
 ```
 
 #### 🔹 Gen 0: `initial_program`
@@ -152,6 +154,11 @@ Gen 0 → Gen 20 → Gen 26 → Gen 43 → Gen 93 → Gen 133 → Gen 148 → Ge
 - **Score**: 4934.54 (+0.6)
 - **Optimization**: Sharper tanh transitions (7.0/6.0 coefficients)
 - **Addition**: Velocity-gated integral to prevent transient windup
+
+#### 🔹 Gen 162: `adaptive_integral_lqr_hybrid`
+- **Score**: 4920.84
+- **Strategy**: Hybrid crossover combining optimal Q weights [4.5, 44.0, 0.6, 3.2] with sharpened gain transitions
+- **Refinement**: Simplified angle-only integral gating (K_i=0.82) with tighter anti-windup bounds [-1.5, 1.5]
 
 #### 🔹 Gen 170: `adaptive_cross_coupled_lqr_with_midswing_damping`
 - **Score**: 5015.73 (+81.2) 🏆 **Best performance**
@@ -395,13 +402,14 @@ if θ_final < 0.03 and x_final < 0.8:
 ## 🤝 Contributions & Acknowledgments
 
 - **ShinkaEvolve**: [SakanaAI/ShinkaEvolve](https://github.com/SakanaAI/ShinkaEvolve)
+- **LiteLLM**: [BerriAI/litellm](https://github.com/BerriAI/litellm)
 - **LLM Models**: DeepSeek, Anthropic, Google, xAI, Zhipu AI, Alibaba Cloud
 
 ---
 
 ## 📄 License
 
-This project follows the open-source license of ShinkaEvolve.
+This project follows the open-source license of ShinkaEvolve and LiteLLM.
 
 ---
 
