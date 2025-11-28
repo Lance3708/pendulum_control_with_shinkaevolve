@@ -108,7 +108,6 @@ This project uses the [ShinkaEvolve](https://github.com/SakanaAI/shinka) framewo
 ## 📊 "Path to Best" Evolution Analysis
 
 ### Experiment 1: Conservative LQR Refinement
-# !!! missing gen 162
 **Generational evolution visualization**:
 
 ```
