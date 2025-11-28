@@ -83,16 +83,16 @@ def visualize_pendulum_enhanced(states, forces, energy_ylim=50000, speed_factor=
     # --- Metrics ---
     energy_consumption = np.cumsum(np.square(forces)) * dt
     
-    # Setup Figure - 调整为正方形动画区域
+    # Setup Figure - adjust to square animation area
     plt.ioff()
-    fig = plt.figure(figsize=(16, 9))  # 保持总体16:9，但调整内部布局
-    # 使用width_ratios让左侧接近正方形（9个单位宽度对应9个单位高度）
+    fig = plt.figure(figsize=(16, 9))  # Keep overall 16:9, but adjust internal layout
+    # Use width_ratios to make left side nearly square (9 units wide for 9 units height)
     gs = fig.add_gridspec(3, 2, width_ratios=[1, 1.5])
     
-    # Animation Axis - 正方形区域，适配2m长杆
+    # Animation Axis - square area, adapted for 2m pole
     ax_anim = fig.add_subplot(gs[:, 0])
-    ax_anim.set_xlim(-4, 4)  # 增加范围以适应更长的杆
-    ax_anim.set_ylim(-1, 3)  # 调整Y轴以显示2m杆的完整运动
+    ax_anim.set_xlim(-4, 4)  # Increase range to accommodate longer pole
+    ax_anim.set_ylim(-1, 3)  # Adjust Y-axis to show full motion of 2m pole
     ax_anim.set_aspect('equal', adjustable='box')
     ax_anim.grid(True)
     ax_anim.set_title("Single Pendulum Simulation (2.5m pole)")
@@ -215,14 +215,14 @@ def print_score(states, forces):
             for penalty in penalties:
                 print(penalty)
     
-    # 显示关键性能指标
+    # Display key performance metrics
     print("\n📈 Key Performance Metrics:")
     print(f"  Stabilization Ratio:  {metrics['public']['stabilization_ratio']:6.2%}  (lower is better)")
     print(f"  Total Energy:         {metrics['public']['total_energy']:10.2f}")
     print(f"  Final Theta Error:    {metrics['public']['final_theta_error']:10.4f} rad ({np.rad2deg(metrics['public']['final_theta_error']):.2f}°)")
     print(f"  Final X Error:        {metrics['public']['final_x_error']:10.4f} m")
     
-    # 显示稳定后的平均误差（新增）
+    # Display average error after stabilization (new)
     if 'stable_theta_error' in metrics['public']:
         print(f"  Stable Theta Error:   {metrics['public']['stable_theta_error']:10.4f} rad (avg after stabilization)")
         print(f"  Stable X Error:       {metrics['public']['stable_x_error']:10.4f} m (avg after stabilization)")

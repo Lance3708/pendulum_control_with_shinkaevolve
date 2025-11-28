@@ -2,12 +2,12 @@ import numpy as np
 
 # --- Physics Constants ---
 M_CART = 1.0       # Mass of the cart (kg)
-M_POLE = 0.35      # Mass of the pole (kg) - 更重，大幅增加控制难度
-L_POLE = 2.5       # Total length of the pole (m) - 更长，极不稳定
+M_POLE = 0.35      # Mass of the pole (kg) - heavier, significantly increases control difficulty
+L_POLE = 2.5       # Total length of the pole (m) - longer, extremely unstable
 L_COM = L_POLE / 2 # Length to center of mass (m)
 G = 9.81           # Gravity (m/s^2)
-FRICTION_CART = 0.35 # Coefficient of friction for cart - 高摩擦，更多能量损失
-FRICTION_JOINT = 0.25 # Coefficient of friction for joint - 高关节摩擦
+FRICTION_CART = 0.35 # Coefficient of friction for cart - high friction, more energy loss
+FRICTION_JOINT = 0.25 # Coefficient of friction for joint - high joint friction
 DT = 0.02          # Time step (s)
 MAX_STEPS = 1000   # 20 seconds simulation
 
@@ -217,7 +217,7 @@ def run_simulation(seed=None):
         np.random.seed(seed)
 
     # Initial state: 1.02 rad (~58 degrees)
-    # 更大初始角度配合更重更长的杆子，极具挑战性
+    # Larger initial angle combined with heavier and longer pole, extremely challenging
     state = np.array([0.0, 1.02, 0.0, 0.0])
 
     states = [state]
